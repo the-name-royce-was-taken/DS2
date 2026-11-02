@@ -74,7 +74,16 @@ class VeraMultiplayerSession {
     if (!menu) return;
     // Frontend LAN trigger removed by request. Backend session stays intact
     // and remains callable via window.__veraMultiplayer.openPanel()/hostLan()/joinLan().
-    const staleTrigger = document.querySelector('#vera-mp-trigger');
+    let trigger = document.querySelector('#vera-mp-trigger');
+
+    if (!trigger) {
+      trigger = document.createElement('button');
+      trigger.id = 'vera-mp-trigger';
+      trigger.type = 'button';
+      trigger.textContent = 'GLOBAL MULTIPLAYER';
+      trigger.addEventListener('click', () => this.openPanel());
+      menu.appendChild(trigger);
+    }
     if (staleTrigger) staleTrigger.remove();
     if (!document.querySelector('#vera-mp-panel')) this.createPanel();
     if (!document.querySelector('#vera-mp-style')) this.createStyle();
@@ -174,9 +183,18 @@ class VeraMultiplayerSession {
           <div class="vera-mp-error" data-mp-error></div>
           <div class="vera-mp-actions" data-mp-actions>
             <p class="vera-mp-intro">Create a room on the Vera server, share its code, and let friends join from anywhere your server is reachable. Choose a team and fight in the same endless match.</p>
-            <div class="vera-mp-choice-grid vera-mp-choice-grid-single">
-              <button class="vera-mp-choice" type="button" data-mp-host><span class="vera-mp-choice-icon" aria-hidden="true">A</span><h3>CREATE ROOM</h3><p>Start a room and share its six-character code with your friends.</p></button>
-              <!-- JOIN ROOM frontend removed by request; backend joinLan()/joinSignalingRoom() kept intact. -->
+            <div class="vera-mp-choice-grid">
+              <button class="vera-mp-choice" type="button" data-mp-host>
+                <span class="vera-mp-choice-icon" aria-hidden="true">A</span>
+                <h3>CREATE ROOM</h3>
+                <p>Create a private online room and share its six-character code.</p>
+              </button>
+
+                <button class="vera-mp-choice" type="button" data-mp-join>
+                  <span class="vera-mp-choice-icon" aria-hidden="true">B</span>
+                <h3>JOIN ROOM</h3>
+                <p>Enter a friend's six-character code to join their match.</p>
+                </button>
             </div>
             <div class="vera-mp-footnote">Up to 20 players per room · uneven teams allowed · endless T vs CT</div>
           </div>
