@@ -97,8 +97,6 @@ class VeraMultiplayerSession {
       #vera-mp-trigger { margin-top: 10px; width: 100%; min-height: 38px; color: #e8eef2; border: 1px solid rgba(168,85,247,.44); background: rgba(10,13,16,.78); cursor: pointer; letter-spacing: 1.8px; font-weight: 800; transition: border-color .16s, background .16s, color .16s; }
       #vera-mp-trigger:hover { border-color: var(--accent, #a855f7); background: rgba(168,85,247,.14); color: #fff; }
       /* LAN / Join frontend removed: never show a stale trigger or join button (e.g. cached DOM). */
-      #vera-mp-trigger, [data-mp-join] { display: none !important; }
-      .vera-mp-choice-grid-single { grid-template-columns: 1fr; }
       #vera-mp-panel { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(3,5,8,.82); backdrop-filter: blur(3px); font-family: inherit; }
       #vera-mp-panel.open { display: flex; }
       .vera-mp-card { width: min(760px, 94vw); max-height: 92vh; overflow: auto; color: #e8eef2; border: 1px solid rgba(255,255,255,.16); border-radius: 4px; background: #101419; box-shadow: 0 22px 70px rgba(0,0,0,.72), 0 0 0 1px rgba(168,85,247,.08); }
