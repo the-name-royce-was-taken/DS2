@@ -14,7 +14,7 @@
   var existing = window.VERA_NETWORK_CONFIG || {};
   var querySignaling = '';
   try { querySignaling = new URLSearchParams(window.location.search).get('signal') || ''; } catch (error) {}
-  var defaultSignaling = 'https://lodging-went-slideshow-arrangements.trycloudflare.com';
+  var defaultSignaling = 'wss://ds-2-defailt-server-1--roycedev.replit.app/signal';
   var configuredIce = Array.isArray(existing.iceServers) ? existing.iceServers : [];
   var defaultIce = [
     { urls: 'stun:stun.l.google.com:19302' },
