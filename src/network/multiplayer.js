@@ -274,9 +274,10 @@ class VeraMultiplayerSession {
     };
     panel.querySelector('.vera-mp-close').addEventListener('click', () => this.closePanel());
     panel.querySelector('[data-mp-host]').addEventListener('click', () => this.hostLan());
-    // Join frontend removed; backend joinLan()/joinSignalingRoom() intentionally kept.
-    const joinChoice = panel.querySelector('[data-mp-join]');
-    if (joinChoice) joinChoice.remove();
+    panel.querySelector('[data-mp-join]').addEventListener(
+      'click',
+      () => this.joinLan()
+    );
     panel.querySelector('[data-mp-copy-offer]').addEventListener('click', () => this.copyText(this.ui.hostOffer.value, 'Offer copied.'));
     panel.querySelector('[data-mp-copy-room]').addEventListener('click', () => this.copyText(this.roomCode, 'Room code copied.'));
     panel.querySelector('[data-mp-accept-answer]').addEventListener('click', () => this.acceptAnswer());
