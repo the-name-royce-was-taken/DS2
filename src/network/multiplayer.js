@@ -72,18 +72,10 @@ class VeraMultiplayerSession {
   ensureUI() {
     const menu = document.querySelector('#menu');
     if (!menu) return;
-let trigger = document.querySelector('#vera-mp-trigger');
-
-if (!trigger) {
-  trigger = document.createElement('button');
-  trigger.id = 'vera-mp-trigger';
-  trigger.type = 'button';
-  trigger.textContent = 'LAN MULTIPLAYER';
-
-  trigger.addEventListener('click', () => this.openPanel());
-
-  menu.appendChild(trigger);
-}
+    // Frontend LAN trigger removed by request. Backend session stays intact
+    // and remains callable via window.__veraMultiplayer.openPanel()/hostLan()/joinLan().
+    const staleTrigger = document.querySelector('#vera-mp-trigger');
+    if (staleTrigger) staleTrigger.remove();
     if (!document.querySelector('#vera-mp-panel')) this.createPanel();
     if (!document.querySelector('#vera-mp-style')) this.createStyle();
     this.updateUI();
