@@ -50759,7 +50759,7 @@ window["game"] = new (class {
   }
 
   ["_applyFixedRes"]() {
-    // Fixed internal resolution by render scale; CSS size stays full-window.
+    // Fixed draw-buffer resolution; CSS stretches it to fill the window.
     const heights = {
       ["performance"]: 0x2d0, // 720
       ["balanced"]: 0x384,    // 900
@@ -50772,9 +50772,19 @@ window["game"] = new (class {
         ? Fx[mode]
         : innerWidth / Math["max"](0x1, innerHeight);
     const w = Math["max"](0x1, Math["round"](h * aspect));
+
     this["renderer"]["setPixelRatio"](0x1);
-    // false = do not change CSS size; browser upscales the lower-res buffer
+    // updateStyle = false → drawing buffer only; we control CSS ourselves
     this["renderer"]["setSize"](w, h, !0x1);
+
+    const el = this["renderer"]["domElement"];
+    if (el && el["style"]) {
+      el["style"]["width"] = "100%";
+      el["style"]["height"] = "100%";
+      el["style"]["objectFit"] = "fill";
+      el["style"]["imageRendering"] = "auto"; // smooth upscale; use "pixelated" for sharp
+    }
+
     this["_syncPost"] && this["_syncPost"]();
   }
   
