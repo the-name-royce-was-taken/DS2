@@ -50761,7 +50761,7 @@ window["game"] = new (class {
   ["_applyFixedRes"]() {
     // Target pixel resolutions (width x height at 16:9). Fitted to window + aspect.
     const targets = {
-      ["performance"]: { ["w"]: 0x500, ["h"]: 0x2d0 }, // 1280 x 720
+      ["performance"]: { ["w"]: 0x356, ["h"]: 0x1e0 }, // 854 x 480
       ["balanced"]: { ["w"]: 0x640, ["h"]: 0x384 },    // 1600 x 900
       ["quality"]: { ["w"]: 0x780, ["h"]: 0x438 },     // 1920 x 1080
     };
