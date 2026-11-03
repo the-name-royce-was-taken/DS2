@@ -133,7 +133,7 @@ export class VeraGameAdapter {
     for (const player of players) {
       const slot = Number(player && player.slot);
       if (!Number.isInteger(slot) || slot < 0 || slot > 31 || slot === this.slot) continue;
-      this.remotePlayers.set(slot, player.team === 'CT' ? 'CT' : 'T');
+      this.remotePlayers.set(slot, player.team === 'CT' || player.team === 'T' ? player.team : '');
     }
     this.claimRemoteSlots();
   }
@@ -147,7 +147,15 @@ export class VeraGameAdapter {
     const manager = this.game && this.game.botMgr;
     if (!manager) return null;
     const normalizedSlot = Number(slot);
-    if (this.remotes.has(normalizedSlot)) return this.remotes.get(normalizedSlot);
+    if (this.remotes.has(normalizedSlot)) {
+      const existing = this.remotes.get(normalizedSlot);
+      if (remoteTeam === 'CT' || remoteTeam === 'T') {
+        existing.__veraTeam = remoteTeam;
+        existing.team = remoteTeam;
+        this.remoteTeam = remoteTeam;
+      }
+      return existing;
+    }
     const candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
     if (!candidate) return null;
     const original = {
@@ -159,9 +167,12 @@ export class VeraGameAdapter {
     this.remoteOriginals.set(normalizedSlot, original);
     this.remotes.set(normalizedSlot, candidate);
     this.remote = this.remotes.get(1) || candidate;
-    this.remoteTeam = remoteTeam || this.remoteTeamOverride || (candidate.team === 'CT' ? 'CT' : 'T');
+    this.remoteTeam = (remoteTeam === 'CT' || remoteTeam === 'T')
+      ? remoteTeam
+      : (this.remoteTeamOverride || (candidate.team === 'CT' ? 'CT' : 'T'));
     candidate.__veraRemoteSlot = normalizedSlot;
-    candidate.__veraTeam = remoteTeam || this.remoteTeam;
+    candidate.__veraTeam = this.remoteTeam;
+    candidate.team = this.remoteTeam;
     candidate.__veraRemote = true;
     // Keep the engine's bot/entity damage path for this slot. Marking it as
     // `isPlayer` would make the existing kill handler drop the local player's
@@ -331,7 +342,7 @@ export class VeraGameAdapter {
       if (state && state.slot === this.slot && this.role === 'guest') this.applyAuthoritativeLocal(state);
       return;
     }
-    if (!this.remotePlayers.has(state.slot)) this.remotePlayers.set(state.slot, 'T');
+    if (!this.remotePlayers.has(state.slot)) this.remotePlayers.set(state.slot, '');
     this.claimRemoteSlots();
     const lastSequence = this.remoteLastSequences.get(state.slot);
     if (Number.isFinite(lastSequence) && state.sequence <= lastSequence && lastSequence - state.sequence < 0x7fffffff) return;
