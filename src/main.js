@@ -53975,7 +53975,7 @@ window["game"] = new (class {
       {
         ["high"]: this["_isMobile"] ? 0x3 : 1.25,
         ["medium"]: 0x1,
-        ["low"]: 0.8,
+        ["low"]: 0.65,
       }[e] || 1.25;
     this["_pr"] = Math["min"](devicePixelRatio, t);
     let n = this["_isMobile"] && e === "high" ? 1.25 : 0x0;
