@@ -422,14 +422,6 @@ export class VeraGameAdapter {
     } else if (state.alive && !player.alive && typeof game.respawnPlayer === 'function') {
       try { game.respawnPlayer(); } catch (error) {}
     }
-    const correction = { x: state.x, y: state.y, z: state.z };
-    if (distance3(player, correction) > 2) {
-      player.x = state.x; player.y = state.y; player.z = state.z;
-    } else {
-      player.x += (state.x - player.x) * 0.18;
-      player.y += (state.y - player.y) * 0.18;
-      player.z += (state.z - player.z) * 0.18;
-    }
     player.health = state.health;
     player.armor = state.armor;
     player.alive = state.alive;
