@@ -50138,8 +50138,7 @@ window["game"] = new (class {
         }
       }),
       addEventListener("resize", () => {
-        (this["renderer"]["setSize"](innerWidth, innerHeight),
-          this["_syncPost"](),
+        (this["_applyFixedRes"](),
           this["_applyAspect"](),
           (this["previewCam"]["aspect"] = innerWidth / innerHeight),
           this["previewCam"]["updateProjectionMatrix"](),
@@ -50758,6 +50757,27 @@ window["game"] = new (class {
     } catch {}
     this["postfx"] && this["postfx"]["setAA"] && this["postfx"]["setAA"](e);
   }
+
+  ["_applyFixedRes"]() {
+    // Fixed internal resolution by render scale; CSS size stays full-window.
+    const heights = {
+      ["performance"]: 0x2d0, // 720
+      ["balanced"]: 0x384,    // 900
+      ["quality"]: 0x438,     // 1080
+    };
+    const h = heights[this["renderScale"]] || 0x438;
+    const mode = this["aspectMode"];
+    const aspect =
+      mode && mode !== "native" && Fx[mode]
+        ? Fx[mode]
+        : innerWidth / Math["max"](0x1, innerHeight);
+    const w = Math["max"](0x1, Math["round"](h * aspect));
+    this["renderer"]["setPixelRatio"](0x1);
+    // false = do not change CSS size; browser upscales the lower-res buffer
+    this["renderer"]["setSize"](w, h, !0x1);
+    this["_syncPost"] && this["_syncPost"]();
+  }
+  
   ["setRenderScale"](e) {
     if (Px[e]) {
       ((Rx = Lx(e, this["_isMobile"])), (this["renderScale"] = e));
@@ -50778,9 +50798,7 @@ window["game"] = new (class {
         (this["_prStartIdx"] = this["_prIdx"]),
         (this["_prCeil"] = 0x0),
         (this["_slowFrames"] = this["_fastFrames"] = 0x0),
-        this["renderer"]["setPixelRatio"](this["_prSteps"][this["_prIdx"]]),
-        this["renderer"]["setSize"](innerWidth, innerHeight),
-        this["_syncPost"]());
+        this["_applyFixedRes"]());
     }
   }
   ["buildPreview"]() {
