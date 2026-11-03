@@ -50261,7 +50261,7 @@ window["game"] = new (class {
             __p_32Ki_MAIN_STR(0x1c73d, 0xb)
         )));
     let f =
-      { ["high"]: d ? 0x3 : 1.25, ["medium"]: 0x1, ["low"]: 0.8 }[
+      { ["high"]: d ? 0x3 : 1.25, ["medium"]: 0x1, ["low"]: 0.65 }[
         this["quality"]
       ] || 1.25;
     this["_pr"] = Math["min"](devicePixelRatio, f);
