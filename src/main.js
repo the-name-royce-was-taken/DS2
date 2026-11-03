@@ -49844,9 +49844,9 @@ function Mx(e, t, n = 0x3) {
 }
 var Nx = 0x4;
 var Px = {
-  ["quality"]: 0x20ce70,
-  ["balanced"]: 0x17a6b0,
-  ["performance"]: 0x10c8e0,
+  ["quality"]: 0x1fa400,      // 1920×1080 = 2,073,600
+  ["balanced"]: 0x15f900,     // 1600×900  = 1,440,000
+  ["performance"]: 0xe1000,   // 1280×720  = 921,600
 };
 var Fx = {
   ["native"]: 0x0,
