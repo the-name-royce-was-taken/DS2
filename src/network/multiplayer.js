@@ -84,7 +84,6 @@ class VeraMultiplayerSession {
       trigger.addEventListener('click', () => this.openPanel());
       menu.appendChild(trigger);
     }
-    if (staleTrigger) staleTrigger.remove();
     if (!document.querySelector('#vera-mp-panel')) this.createPanel();
     if (!document.querySelector('#vera-mp-style')) this.createStyle();
     this.updateUI();
