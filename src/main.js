@@ -50630,12 +50630,14 @@ window["game"] = new (class {
     this["_applyShadows"]();
   }
   ["_applyShadows"]() {
-    let e =
-      this["shadowPref"] ||
-      { ["high"]: "high", ["medium"]: "low", ["low"]: "off" }[
-        this["quality"]
-      ] ||
-      "high";
+      let e =
+        this["quality"] === "low"
+          ? "off"
+          : this["shadowPref"] ||
+            { ["high"]: "high", ["medium"]: "low", ["low"]: "off" }[
+              this["quality"]
+            ] ||
+            "high";
     let t = { ["high"]: 0x1000, ["low"]: 0x400, ["off"]: 0x0 }[e] ?? 0x1000;
     let n = e === "high";
     if (
@@ -54016,16 +54018,50 @@ window["game"] = new (class {
       this["_applyPresetPasses"](e));
   }
   ["_prLadder"](e) {
-    let t = [0x3, 2.5, 0x2, 1.75, 1.5, 1.25, 1.1, 0x1, 0.9, 0.8, 0.7, 0.62];
-    return (e === "low" && t["push"](0.5), t);
+    let t = [
+      0x3,
+      2.5,
+      0x2,
+      1.75,
+      1.5,
+      1.25,
+      1.1,
+      0x1,
+      0.9,
+      0.8,
+      0.7,
+      0.62,
+    ];
+
+    if (e === "low") {
+      t.push(0.5, 0.42, 0.35);
+    }
+
+    return t;
   }
   ["_applyPresetPasses"](e) {
-    if (!this["postfx"]) {
-      return;
-    }
-    (this["postfx"]["setBloom"](e === "high"), (this["_bloomShed"] = !0x1));
-    let t = e === "low" ? "off" : this["_aaBase"] || "msaa";
-    this["postfx"]["setAA"](t) && this["_syncPost"]();
+      if (!this["postfx"]) {
+        return;
+      }
+
+      // Disable optional visual effects on Low.
+      const low = e === "low";
+  
+      // Bloom
+      this["postfx"]["setBloom"](!low);
+      this["_bloomShed"] = !1;
+  
+      // Anti-aliasing
+      const aa = low ? "off" : this["_aaBase"] || "msaa";
+  
+      if (this["postfx"]["setAA"](aa)) {
+        this["_syncPost"]();
+      }
+  
+      // Colour grading shader
+      if (this["postfx"]["grade"]) {
+        this["postfx"]["grade"]["enabled"] = !low;
+      }
   }
   ["_autoRscale"](e) {
     return this["_isMobile"]
