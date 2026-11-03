@@ -72,10 +72,27 @@ class VeraMultiplayerSession {
   ensureUI() {
     const menu = document.querySelector('#menu');
     if (!menu) return;
-    // Frontend LAN trigger removed by request. Backend session stays intact
-    // and remains callable via window.__veraMultiplayer.openPanel()/hostLan()/joinLan().
-    let trigger = document.querySelector('#vera-mp-trigger');
 
+    // Enable the built-in Private / Join buttons from main.js menu template
+    const sub = menu.querySelector('#playsub');
+    if (sub) {
+      const buttons = sub.querySelectorAll('.ghostbtn');
+      buttons.forEach(btn => {
+        btn.disabled = false;
+        btn.removeAttribute('disabled');
+      });
+      // Wire once
+      if (!sub.dataset.veraMpWired) {
+        sub.dataset.veraMpWired = '1';
+        const privateBtn = [...buttons].find(b => /private/i.test(b.textContent || ''));
+        const joinBtn = [...buttons].find(b => /join/i.test(b.textContent || ''));
+        if (privateBtn) privateBtn.addEventListener('click', () => this.hostLan());
+        if (joinBtn) joinBtn.addEventListener('click', () => this.joinLan());
+      }
+    }
+
+    // Optional: keep the extra GLOBAL MULTIPLAYER trigger as well
+    let trigger = document.querySelector('#vera-mp-trigger');
     if (!trigger) {
       trigger = document.createElement('button');
       trigger.id = 'vera-mp-trigger';
@@ -84,6 +101,7 @@ class VeraMultiplayerSession {
       trigger.addEventListener('click', () => this.openPanel());
       menu.appendChild(trigger);
     }
+
     if (!document.querySelector('#vera-mp-panel')) this.createPanel();
     if (!document.querySelector('#vera-mp-style')) this.createStyle();
     this.updateUI();
