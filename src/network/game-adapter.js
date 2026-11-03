@@ -386,7 +386,7 @@ export class VeraGameAdapter {
   }
 
   applyRemoteState(state, immediate = false) {
-    const remote = this.remotes.get(Number(state && state.slot)) || this.remote;
+    const remote = state ? this.remotes.get(Number(state.slot)) : null;
     if (!remote || !state) return;
     const previous = { x: remote.x, y: remote.y, z: remote.z };
     const distance = distance3(previous, state);
@@ -451,7 +451,8 @@ export class VeraGameAdapter {
 
   simulateRemoteShot(event) {
     const game = this.game;
-    const remote = this.remotes.get(Number(event && (event.slot ?? event.fromSlot))) || this.remote;
+    const remoteSlot = Number(event && (event.slot ?? event.fromSlot));
+    const remote = this.remotes.get(remoteSlot);
     const weapon = this.weaponDefinition(event.weapon);
     if (!game || !remote || !weapon) return;
     const ox = finite(event.ox), oy = finite(event.oy), oz = finite(event.oz);
