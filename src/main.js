@@ -50759,22 +50759,30 @@ window["game"] = new (class {
   }
 
   ["_applyFixedRes"]() {
-    // Fixed draw-buffer resolution; CSS stretches it to fill the window.
-    const heights = {
-      ["performance"]: 0x2d0, // 720
-      ["balanced"]: 0x384,    // 900
-      ["quality"]: 0x438,     // 1080
+    // Target pixel resolutions (width x height at 16:9). Fitted to window + aspect.
+    const targets = {
+      ["performance"]: { ["w"]: 0x500, ["h"]: 0x2d0 }, // 1280 x 720
+      ["balanced"]: { ["w"]: 0x640, ["h"]: 0x384 },    // 1600 x 900
+      ["quality"]: { ["w"]: 0x780, ["h"]: 0x438 },     // 1920 x 1080
     };
-    const h = heights[this["renderScale"]] || 0x438;
+    const t = targets[this["renderScale"]] || targets["quality"];
     const mode = this["aspectMode"];
     const aspect =
       mode && mode !== "native" && Fx[mode]
         ? Fx[mode]
         : innerWidth / Math["max"](0x1, innerHeight);
-    const w = Math["max"](0x1, Math["round"](h * aspect));
+
+    // Build buffer at the chosen tier, using the active aspect ratio
+    let h = t["h"];
+    let w = Math["max"](0x1, Math["round"](h * aspect));
+
+    // Fit inside the window — never render more pixels than the display
+    const fit = Math["min"](0x1, innerWidth / w, innerHeight / h);
+    w = Math["max"](0x1, Math["round"](w * fit));
+    h = Math["max"](0x1, Math["round"](h * fit));
 
     this["renderer"]["setPixelRatio"](0x1);
-    // updateStyle = false → drawing buffer only; we control CSS ourselves
+    // false = keep CSS full-window; only the drawing buffer changes
     this["renderer"]["setSize"](w, h, !0x1);
 
     const el = this["renderer"]["domElement"];
@@ -50782,7 +50790,7 @@ window["game"] = new (class {
       el["style"]["width"] = "100%";
       el["style"]["height"] = "100%";
       el["style"]["objectFit"] = "fill";
-      el["style"]["imageRendering"] = "auto"; // smooth upscale; use "pixelated" for sharp
+      el["style"]["imageRendering"] = "auto";
     }
 
     this["_syncPost"] && this["_syncPost"]();
