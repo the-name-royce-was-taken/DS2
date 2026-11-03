@@ -39577,7 +39577,11 @@ var W_ = {
   ["medium"]: "balanced",
   ["high"]: "quality",
 };
-var G_ = { ["low"]: 0x4, ["medium"]: 0x8, ["high"]: 0x10 };
+var G_ = {
+  ["low"]: 0x1,
+  ["medium"]: 0x4,
+  ["high"]: 0x10,
+};
 var K_ = "vera_gfxauto";
 var q_ = "vera_autotier";
 var J_ = "vera_autotier_max";
