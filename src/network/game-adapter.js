@@ -190,7 +190,11 @@ export class VeraGameAdapter {
     const slot = Number(remote && remote.__veraRemoteSlot);
     const originalSpawn = this.remoteOriginals.get(slot) && this.remoteOriginals.get(slot).spawn;
     if (originalSpawn) {
-      try { originalSpawn.call(remote); } catch (error) {}
+      try {
+        originalSpawn.call(remote);
+      } catch (error) {
+        console.error('[VERA] Remote spawn failed:', slot, error);
+      }
     }
     remote.__veraLastAlive = true;
     const lastState = this.remoteLastStates.get(slot) || this.remoteLastState;
