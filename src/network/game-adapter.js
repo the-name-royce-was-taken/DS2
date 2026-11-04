@@ -394,7 +394,8 @@ export class VeraGameAdapter {
     if (!remote || !state) return;
     const previous = { x: remote.x, y: remote.y, z: remote.z };
     const distance = distance3(previous, state);
-    if (!immediate && distance > 12) return;
+    if (!immediate && remote.__veraHasNetworkPosition && distance > 12) return;
+    remote.__veraHasNetworkPosition = true;
     remote.x = state.x; remote.y = state.y; remote.z = state.z;
     remote._visY = state.y;
     remote.vx = state.vx; remote.vy = state.vy; remote.vz = state.vz;
