@@ -3335,5 +3335,176 @@ window.__cs2UiScale = function () {
   <script src="./src/vera-performance.js"></script>
   <script src="./src/vera-network-config.js?v=vera21"></script>
   <script type="module" src="./src/network/multiplayer.js?v=vera20"></script>
+
+<style>
+  #vera-logs {
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 999999;
+    font: 12px monospace;
+    color: #eee;
+  }
+
+  #vera-logs-toggle {
+    background: #222;
+    color: white;
+    border: 1px solid #666;
+    border-radius: 7px;
+    padding: 9px 14px;
+    cursor: pointer;
+  }
+
+  #vera-logs-panel {
+    display: none;
+    width: min(420px, calc(100vw - 28px));
+    height: 300px;
+    background: #151515;
+    border: 1px solid #555;
+    border-radius: 8px;
+    margin-bottom: 7px;
+    overflow: hidden;
+    flex-direction: column;
+  }
+
+  #vera-logs-panel.open {
+    display: flex;
+  }
+
+  #vera-logs-output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 9px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  #vera-logs-output div {
+    padding: 4px 0;
+    border-bottom: 1px solid #333;
+  }
+
+  #vera-logs-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px;
+    border-top: 1px solid #444;
+  }
+
+  #vera-logs-actions button {
+    flex: 1;
+    padding: 7px;
+    cursor: pointer;
+  }
+
+  .vera-error { color: #ff7777; }
+  .vera-warn { color: #ffcc66; }
+  .vera-info { color: #ddd; }
+</style>
+
+<div id="vera-logs">
+  <div id="vera-logs-panel">
+    <div id="vera-logs-output"></div>
+    <div id="vera-logs-actions">
+      <button id="vera-logs-copy">Copy Logs</button>
+      <button id="vera-logs-clear">Clear</button>
+    </div>
+  </div>
+  <button id="vera-logs-toggle">Logs ▲</button>
+</div>
+
+<script>
+(function () {
+  const output = document.getElementById('vera-logs-output');
+  const panel = document.getElementById('vera-logs-panel');
+  const toggle = document.getElementById('vera-logs-toggle');
+  const entries = [];
+  const MAX_LOGS = 500;
+
+  function addLog(type, args) {
+    const message = Array.from(args).map(value => {
+      if (value instanceof Error) {
+        return value.stack || value.message;
+      }
+      if (typeof value === 'object' && value !== null) {
+        try { return JSON.stringify(value); }
+        catch (e) { return String(value); }
+      }
+      return String(value);
+    }).join(' ');
+
+    const time = new Date().toLocaleTimeString();
+    const entry = `[${time}] [${type}] ${message}`;
+
+    entries.push(entry);
+    if (entries.length > MAX_LOGS) entries.shift();
+
+    const line = document.createElement('div');
+    line.className = type === 'ERROR'
+      ? 'vera-error'
+      : type === 'WARN' ? 'vera-warn' : 'vera-info';
+
+    line.textContent = entry;
+    output.appendChild(line);
+
+    while (output.children.length > MAX_LOGS) {
+      output.removeChild(output.firstChild);
+    }
+
+    output.scrollTop = output.scrollHeight;
+  }
+
+  ['log', 'warn', 'error'].forEach(method => {
+    const original = console[method].bind(console);
+
+    console[method] = function (...args) {
+      original(...args);
+      addLog(method.toUpperCase(), args);
+    };
+  });
+
+  window.addEventListener('error', event => {
+    addLog('ERROR', [
+      event.message,
+      event.filename,
+      `Line ${event.lineno}:${event.colno}`
+    ]);
+  });
+
+  window.addEventListener('unhandledrejection', event => {
+    addLog('ERROR', ['Unhandled promise rejection:', event.reason]);
+  });
+
+  toggle.addEventListener('click', () => {
+    panel.classList.toggle('open');
+    toggle.textContent = panel.classList.contains('open')
+      ? 'Logs ▼'
+      : 'Logs ▲';
+  });
+
+  document.getElementById('vera-logs-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(entries.join('\n'));
+      document.getElementById('vera-logs-copy').textContent = 'Copied!';
+    } catch (error) {
+      const area = document.createElement('textarea');
+      area.value = entries.join('\n');
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand('copy');
+      area.remove();
+      document.getElementById('vera-logs-copy').textContent = 'Copied!';
+    }
+  });
+
+  document.getElementById('vera-logs-clear').addEventListener('click', () => {
+    entries.length = 0;
+    output.innerHTML = '';
+  });
+
+  addLog('INFO', ['Vera Logs initialized']);
+})();
+</script>
+
 </body>
 </html>
