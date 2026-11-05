@@ -583,6 +583,29 @@ export class VeraGameAdapter {
     }
   }
 
+  simulateRemoteMelee(event) {
+    const game = this.game;
+    const remoteSlot = Number(event && (event.slot ?? event.fromSlot));
+    const remote = this.remotes.get(remoteSlot);
+    const weapon = this.weaponDefinition('knife');
+    const length = Math.hypot(finite(event && event.dirX), finite(event && event.dirY), finite(event && event.dirZ));
+    if (!game || !remote || !weapon || weapon.class !== 'knife' || !Number.isFinite(length) || length < 0.5 || length > 1.5) {
+      this.diagnostic('melee-rejected', { remoteSlot, game: !!game, remoteFound: !!remote, weaponFound: !!weapon, weaponClass: weapon && weapon.class });
+      return;
+    }
+    const direction = [finite(event.dirX) / length, finite(event.dirY) / length, finite(event.dirZ) / length];
+    remote.__veraFiringT = 0.18;
+    this.diagnostic('melee-simulate', { remoteSlot, damage: event.damage, heavy: !!event.heavy, attacker: [remote.x, remote.y, remote.z], target: game.player && [game.player.x, game.player.y, game.player.z] });
+    this.suppressNetwork = true;
+    try {
+      game.meleeAttack(remote, finite(event.damage, 40), weapon, finite(event.backDamage, 90), !!event.heavy, ...direction);
+    } catch (error) {
+      this.diagnostic('melee-simulate-error', { remoteSlot, error: String(error && error.stack || error) });
+    } finally {
+      this.suppressNetwork = false;
+    }
+  }
+
   simulateRemoteShot(event) {
     const game = this.game;
     const remoteSlot = Number(event && (event.slot ?? event.fromSlot));
