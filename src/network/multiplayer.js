@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera30';
-import { VeraGameAdapter } from './game-adapter.js?v=vera30';
-import { VeraRoomTransport } from './signaling.js?v=vera30';
+import { VeraPeerTransport } from './webrtc.js?v=vera28';
+import { VeraGameAdapter } from './game-adapter.js?v=vera28';
+import { VeraRoomTransport } from './signaling.js?v=vera28';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -436,7 +436,7 @@ class VeraMultiplayerSession {
     this.adapter.onLocalShot = event => {
       if (!this.transport || !this.markEvent(event.eventId)) return;
       const sent = this.transport.sendControl({ ...event, from: this.role, slot: this.slot });
-      this.diagnostic(event.type === 'melee' ? (sent ? 'melee-control-sent' : 'melee-control-send-failed') : (sent ? 'fire-control-sent' : 'fire-control-send-failed'), { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
+      this.diagnostic(sent ? 'fire-control-sent' : 'fire-control-send-failed', { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
     };
   }
 
@@ -639,18 +639,17 @@ class VeraMultiplayerSession {
       }
       return;
     }
-    if (message.type === 'fire' || message.type === 'melee') {
+    if (message.type === 'fire') {
       const senderSlot = Number(fromSlot);
       const shot = Number.isInteger(senderSlot) && senderSlot >= 0 && senderSlot <= 31 && senderSlot !== this.slot
         ? { ...message, slot: senderSlot }
         : message;
       if (!this.markEvent(shot.eventId)) {
-        this.diagnostic(message.type === 'melee' ? 'melee-duplicate' : 'fire-duplicate', { senderSlot, eventId: shot.eventId });
+        this.diagnostic('fire-duplicate', { senderSlot, eventId: shot.eventId });
         return;
       }
-      this.diagnostic(message.type === 'melee' ? 'melee-dispatched' : 'fire-dispatched', { senderSlot, payloadSlot: message.slot, routedSlot: shot.slot, eventId: shot.eventId, weapon: shot.weapon });
-      if (shot.type === 'melee') this.adapter.simulateRemoteMelee(shot);
-      else this.adapter.simulateRemoteShot(shot);
+      this.diagnostic('fire-dispatched', { senderSlot, payloadSlot: message.slot, routedSlot: shot.slot, eventId: shot.eventId, weapon: shot.weapon });
+      this.adapter.simulateRemoteShot(shot);
     }
   }
 
