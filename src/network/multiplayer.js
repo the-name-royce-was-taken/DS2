@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera24';
-import { VeraGameAdapter } from './game-adapter.js?v=vera24';
-import { VeraRoomTransport } from './signaling.js?v=vera24';
+import { VeraPeerTransport } from './webrtc.js?v=vera26';
+import { VeraGameAdapter } from './game-adapter.js?v=vera26';
+import { VeraRoomTransport } from './signaling.js?v=vera26';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -73,6 +73,16 @@ class VeraMultiplayerSession {
     if (now - previous < 3000) return;
     this.diagTimes.set(key, now);
     console.log('[VERA][multiplayer]', key, ...details);
+  }
+
+  setDiagnosticsEnabled(enabled) {
+    this.diagnosticsEnabled = !!enabled;
+    if (this.transport && this.transport.client) {
+      this.transport.client.diagnosticsEnabled = this.diagnosticsEnabled;
+    }
+    if (this.adapter && typeof this.adapter.setDiagnosticsEnabled === 'function') {
+      this.adapter.setDiagnosticsEnabled(this.diagnosticsEnabled);
+    }
   }
 
   installUIWatch() {
@@ -361,7 +371,7 @@ class VeraMultiplayerSession {
 
   newTransport(role) {
     if (this.transport) this.transport.close();
-    this.diagnosticsEnabled = true;
+    this.setDiagnosticsEnabled(false);
     this.role = role;
     this.slot = role === 'host' ? 0 : 1;
     this.transportConnected = false;
@@ -377,12 +387,11 @@ class VeraMultiplayerSession {
     const transport = this.transport = this.signalingEnabled
       ? new VeraRoomTransport(this.config.signalingUrl)
       : new VeraPeerTransport(this.config);
-    if (transport.client) transport.client.diagnosticsEnabled = true;
     transport.onStatus = (status, detail) => {
       if (status === 'connected' && !this.signalingEnabled) this.transportConnected = true;
       if (status === 'disconnected') {
         this.transportConnected = false;
-        this.diagnosticsEnabled = false;
+        this.setDiagnosticsEnabled(false);
       }
       this.setStatus(status, detail);
     };
@@ -408,7 +417,7 @@ class VeraMultiplayerSession {
         }
         this.diagnostic('peer-disconnected', { role: this.role, slot: this.slot, peerClosed: !!peer.closed });
         this.transportConnected = false;
-        this.diagnosticsEnabled = false;
+        this.setDiagnosticsEnabled(false);
         this.matchStarted = false;
         this.adapter.removeRemote();
         this.setStatus('disconnected', peer.closed ? 'The room host closed the room.' : 'The room connection was lost.');
@@ -575,11 +584,13 @@ class VeraMultiplayerSession {
     this.setStatus('connecting');
     try {
       await this.adapter.startMatch({ map: config.map, mode: 'dm', team });
+      this.setDiagnosticsEnabled(true);
       this.transport.sendControl({ type: 'match-ready', from: this.role });
       this.setStatus('match-ready');
       this.closePanel();
     } catch (error) {
       this.matchStarted = false;
+      this.setDiagnosticsEnabled(false);
       this.setStatus('error', error.message);
     }
   }
@@ -691,7 +702,7 @@ class VeraMultiplayerSession {
   }
 
   leave(silent) {
-    this.diagnosticsEnabled = false;
+    this.setDiagnosticsEnabled(false);
     if (this.transport) this.transport.close();
     this.transport = null;
     this.adapter.deactivate();
