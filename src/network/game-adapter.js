@@ -127,7 +127,8 @@ export class VeraGameAdapter {
       throw new Error('The current game build does not expose its match entry points.');
     }
     this.game = game;
-    await game.startGame(map, 1, 1, mode || 'defusal');
+    const remoteBotCount = Math.max(1, this.remotePlayers.size);
+    await game.startGame(map, remoteBotCount, 1, mode || 'defusal');
     this.ensureHooks();
     await game.finishTeamSelect(team || (this.slot === 0 ? 'CT' : 'T'));
     this.claimRemoteSlots();
