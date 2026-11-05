@@ -281,7 +281,6 @@ export class VeraGameAdapter {
         console.error('[VERA] Remote spawn failed:', slot, error);
       }
     }
-    remote.__veraLastAlive = true;
     // A respawn must use the engine-selected spawn, not the last packet from
     // this or another remote player. The next network state is allowed to
     // establish the new position even if it is far from the corpse.
