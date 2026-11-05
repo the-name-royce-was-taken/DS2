@@ -46,6 +46,15 @@ export class VeraGameAdapter {
     this.frameHandle = 0;
     this.lastFrameAt = 0;
     this.lastRemoteClaimAt = 0;
+    this.diagTimes = new Map();
+  }
+
+  diagnostic(key, ...details) {
+    const now = performance.now();
+    const previous = this.diagTimes.get(key) || 0;
+    if (now - previous < 3000) return;
+    this.diagTimes.set(key, now);
+    console.info('[VERA][adapter]', key, ...details);
   }
 
   activate(role, slot) {
@@ -63,6 +72,7 @@ export class VeraGameAdapter {
     this.remoteBuffer.length = 0;
     this.remoteLastSequence = -1;
     this.ensureHooks();
+    this.diagnostic('activate', { role: this.role, slot: this.slot, game: !!this.game, botManager: !!(this.game && this.game.botMgr) });
     this.startFrameLoop();
   }
 
@@ -137,6 +147,7 @@ export class VeraGameAdapter {
       if (!Number.isInteger(slot) || slot < 0 || slot > 31 || slot === this.slot) continue;
       this.remotePlayers.set(slot, player.team === 'CT' || player.team === 'T' ? player.team : '');
     }
+    this.diagnostic('roster', { role: this.role, localSlot: this.slot, slots: [...this.remotePlayers.keys()], teams: [...this.remotePlayers.entries()] });
     this.claimRemoteSlots();
   }
 
@@ -147,7 +158,10 @@ export class VeraGameAdapter {
 
   claimRemoteSlot(slot = 1, remoteTeam = '') {
     const manager = this.game && this.game.botMgr;
-    if (!manager) return null;
+    if (!manager) {
+      this.diagnostic('claim-no-manager', { slot, game: !!this.game });
+      return null;
+    }
     const normalizedSlot = Number(slot);
     if (this.remotes.has(normalizedSlot)) {
       const existing = this.remotes.get(normalizedSlot);
@@ -159,7 +173,11 @@ export class VeraGameAdapter {
       return existing;
     }
     const candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
-    if (!candidate) return null;
+    if (!candidate) {
+      this.diagnostic('claim-no-bot', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length, remoteSlots: [...this.remotes.keys()] });
+      return null;
+    }
+    this.diagnostic('claim-success', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length, candidateName: candidate.name, candidateAlive: candidate.alive });
     const original = {
       update: candidate.update,
       spawn: candidate.spawn,
@@ -350,9 +368,16 @@ export class VeraGameAdapter {
 
   receiveState(packet, fromSlot = null) {
     const state = decodeState(packet);
-    if (!state || !this.active) return;
+    if (!state || !this.active) {
+      this.diagnostic('state-invalid-or-inactive', { decoded: !!state, active: this.active, role: this.role, localSlot: this.slot, packetBytes: packet && packet.byteLength });
+      return;
+    }
     const senderSlot = Number(fromSlot);
-    if (Number.isInteger(senderSlot) && senderSlot === this.slot) return;
+    if (Number.isInteger(senderSlot) && senderSlot === this.slot) {
+      this.diagnostic('state-self-echo', { senderSlot, localSlot: this.slot });
+      return;
+    }
+    const payloadSlot = state.slot;
     // On the host, the signaling server's sender slot is authoritative.
     // This prevents stale client-side slot values after reconnects from
     // routing a guest's state into the wrong remote entity.
@@ -360,13 +385,18 @@ export class VeraGameAdapter {
       state.slot = senderSlot;
     }
     if (state.slot === this.slot) {
+      this.diagnostic('state-mapped-to-local', { senderSlot, payloadSlot, role: this.role, localSlot: this.slot });
       if (state && state.slot === this.slot && this.role === 'guest') this.applyAuthoritativeLocal(state);
       return;
     }
     if (!this.remotePlayers.has(state.slot)) this.remotePlayers.set(state.slot, '');
     this.claimRemoteSlots();
     const lastSequence = this.remoteLastSequences.get(state.slot);
-    if (Number.isFinite(lastSequence) && state.sequence <= lastSequence && lastSequence - state.sequence < 0x7fffffff) return;
+    if (Number.isFinite(lastSequence) && state.sequence <= lastSequence && lastSequence - state.sequence < 0x7fffffff) {
+      this.diagnostic('state-stale', { senderSlot, payloadSlot, mappedSlot: state.slot, sequence: state.sequence, lastSequence });
+      return;
+    }
+    this.diagnostic('state-accepted', { role: this.role, senderSlot, payloadSlot, mappedSlot: state.slot, sequence: state.sequence, position: [state.x, state.y, state.z], remoteExists: this.remotes.has(state.slot), rosterSlots: [...this.remotePlayers.keys()] });
     this.remoteLastSequences.set(state.slot, state.sequence);
     const now = performance.now();
     const buffer = this.remoteBuffers.get(state.slot) || [];
@@ -408,10 +438,16 @@ export class VeraGameAdapter {
 
   applyRemoteState(state, immediate = false) {
     const remote = state ? this.remotes.get(Number(state.slot)) : null;
-    if (!remote || !state) return;
+    if (!remote || !state) {
+      this.diagnostic('apply-no-remote', { stateSlot: state && state.slot, remoteSlots: [...this.remotes.keys()], rosterSlots: [...this.remotePlayers.keys()] });
+      return;
+    }
     const previous = { x: remote.x, y: remote.y, z: remote.z };
     const distance = distance3(previous, state);
-    if (!immediate && remote.__veraHasNetworkPosition && distance > 12) return;
+    if (!immediate && remote.__veraHasNetworkPosition && distance > 12) {
+      this.diagnostic('apply-distance-rejected', { slot: state.slot, distance, previous, incoming: [state.x, state.y, state.z] });
+      return;
+    }
     remote.__veraHasNetworkPosition = true;
     remote.x = state.x; remote.y = state.y; remote.z = state.z;
     remote._visY = state.y;
@@ -423,6 +459,7 @@ export class VeraGameAdapter {
     remote.weapon = state.weapon;
     remote.ammo = state.ammo;
     remote.__veraNetworkState = state;
+    this.diagnostic('apply-position', { slot: state.slot, position: [state.x, state.y, state.z], weapon: state.weapon, ammo: state.ammo, remoteAlive: remote.alive, rootVisible: remote.cs2Agent && remote.cs2Agent.root && remote.cs2Agent.root.visible });
 
     // The host owns remote health/alive state. Guests receive it from the host.
     if (this.role !== 'host') {
@@ -475,15 +512,24 @@ export class VeraGameAdapter {
     const game = this.game;
     const remoteSlot = Number(event && (event.slot ?? event.fromSlot));
     const remote = this.remotes.get(remoteSlot);
-    const weapon = this.weaponDefinition(event.weapon);
-    if (!game || !remote || !weapon) return;
+    const weapon = this.weaponDefinition(event && event.weapon);
+    if (!game || !remote || !weapon) {
+      this.diagnostic('shot-rejected', { remoteSlot, game: !!game, remoteFound: !!remote, remoteSlots: [...this.remotes.keys()], weaponId: event && event.weapon, weaponFound: !!weapon });
+      return;
+    }
+    this.diagnostic('shot-simulate', { remoteSlot, weapon: event.weapon, shooterPosition: [remote.x, remote.y, remote.z], localPlayerPosition: game.player && [game.player.x, game.player.y, game.player.z], localHealth: game.player && game.player.health });
     const ox = finite(event.ox), oy = finite(event.oy), oz = finite(event.oz);
     const dx = finite(event.dx), dy = finite(event.dy), dz = finite(event.dz);
     const length = Math.hypot(dx, dy, dz);
     if (!Number.isFinite(length) || length < 0.5 || length > 1.5) return;
     remote.__veraFiringT = 0.18;
     this.suppressNetwork = true;
-    try { game.fireBullet(remote, ox, oy, oz, dx / length, dy / length, dz / length, weapon); } catch (error) {}
+    try {
+      game.fireBullet(remote, ox, oy, oz, dx / length, dy / length, dz / length, weapon);
+      this.diagnostic('shot-firebullet-returned', { remoteSlot, localHealthAfter: game.player && game.player.health });
+    } catch (error) {
+      this.diagnostic('shot-firebullet-error', { remoteSlot, error: String(error && error.stack || error) });
+    }
     this.suppressNetwork = false;
     try { game.audio && game.audio.play && game.audio.play(weapon.sound, { pos: remote }); } catch (error) {}
   }
