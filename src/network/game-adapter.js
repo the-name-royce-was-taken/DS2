@@ -131,6 +131,9 @@ export class VeraGameAdapter {
             eventId: `${adapter.slot}:${adapter.localSequence++}`,
             tick: adapter.tick,
             weapon: 'knife',
+            x: finite(player && player.x),
+            y: finite(player && player.y),
+            z: finite(player && player.z),
             damage: finite(damage),
             backDamage: finite(backDamage),
             heavy: !!heavy,
@@ -605,6 +608,15 @@ export class VeraGameAdapter {
       return;
     }
     const direction = [finite(event.dirX) / length, finite(event.dirY) / length, finite(event.dirZ) / length];
+    // Melee range/line-of-sight is evaluated immediately from the attacker's
+    // entity coordinates. Remote avatars are rendered with interpolation delay,
+    // so use the attack-time origin carried by the event, not the delayed pose.
+    if ([event.x, event.y, event.z].every(value => Number.isFinite(Number(value)))) {
+      remote.x = Number(event.x);
+      remote.y = Number(event.y);
+      remote.z = Number(event.z);
+      remote._visY = remote.y;
+    }
     remote.__veraFiringT = 0.18;
     this.diagnostic('melee-simulate', { remoteSlot, damage: event.damage, heavy: !!event.heavy, attacker: [remote.x, remote.y, remote.z], target: game.player && [game.player.x, game.player.y, game.player.z] });
     this.suppressNetwork = true;
