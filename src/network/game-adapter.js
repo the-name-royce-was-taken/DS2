@@ -47,9 +47,15 @@ export class VeraGameAdapter {
     this.lastFrameAt = 0;
     this.lastRemoteClaimAt = 0;
     this.diagTimes = new Map();
+    this.diagnosticsEnabled = false;
+  }
+
+  setDiagnosticsEnabled(enabled) {
+    this.diagnosticsEnabled = !!enabled;
   }
 
   diagnostic(key, ...details) {
+    if (!this.diagnosticsEnabled) return;
     const now = performance.now();
     const previous = this.diagTimes.get(key) || 0;
     if (now - previous < 3000) return;
