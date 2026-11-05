@@ -40,6 +40,7 @@ export class VeraGameAdapter {
     this.remoteRelaySequences = new Map();
     this.remoteLastState = null;
     this.remoteLastStates = new Map();
+    this.originalPlayerMelee = null;
     this.localSequence = 0;
     this.stateSequence = 0;
     this.authoritativeLocalSequence = -1;
@@ -84,6 +85,7 @@ export class VeraGameAdapter {
     this.remoteBuffers.clear();
     this.remoteLastSequences.clear();
     this.remoteRelaySequences.clear();
+    this.remoteLastState = null;
     this.remoteLastStates.clear();
     this.lastRemoteClaimAt = 0;
     this.remoteBuffer.length = 0;
@@ -672,6 +674,7 @@ export class VeraGameAdapter {
       this.remoteLastSequences.delete(remoteSlot);
       this.remoteRelaySequences.delete(remoteSlot);
       this.remoteLastStates.delete(remoteSlot);
+      if (this.remoteLastState && Number(this.remoteLastState.slot) === remoteSlot) this.remoteLastState = null;
       if (this.remote === targets[0][1]) this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
     }
   }
