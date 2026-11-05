@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera22';
-import { VeraGameAdapter } from './game-adapter.js?v=vera22';
-import { VeraRoomTransport } from './signaling.js?v=vera22';
+import { VeraPeerTransport } from './webrtc.js?v=vera23';
+import { VeraGameAdapter } from './game-adapter.js?v=vera23';
+import { VeraRoomTransport } from './signaling.js?v=vera23';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -596,8 +596,12 @@ class VeraMultiplayerSession {
       return;
     }
     if (message.type === 'fire') {
-      if (!this.markEvent(message.eventId)) return;
-      this.adapter.simulateRemoteShot(message);
+      const senderSlot = Number(fromSlot);
+      const shot = Number.isInteger(senderSlot) && senderSlot >= 0 && senderSlot <= 31 && senderSlot !== this.slot
+        ? { ...message, slot: senderSlot }
+        : message;
+      if (!this.markEvent(shot.eventId)) return;
+      this.adapter.simulateRemoteShot(shot);
     }
   }
 

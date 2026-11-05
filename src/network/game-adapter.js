@@ -350,8 +350,16 @@ export class VeraGameAdapter {
 
   receiveState(packet, fromSlot = null) {
     const state = decodeState(packet);
-    if (fromSlot != null && Number(fromSlot) === this.slot) return;
-    if (!state || !this.active || state.slot === this.slot) {
+    if (!state || !this.active) return;
+    const senderSlot = Number(fromSlot);
+    if (Number.isInteger(senderSlot) && senderSlot === this.slot) return;
+    // On the host, the signaling server's sender slot is authoritative.
+    // This prevents stale client-side slot values after reconnects from
+    // routing a guest's state into the wrong remote entity.
+    if (this.role === 'host' && Number.isInteger(senderSlot) && senderSlot > 0 && senderSlot <= 31) {
+      state.slot = senderSlot;
+    }
+    if (state.slot === this.slot) {
       if (state && state.slot === this.slot && this.role === 'guest') this.applyAuthoritativeLocal(state);
       return;
     }
