@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera23';
-import { VeraGameAdapter } from './game-adapter.js?v=vera23';
-import { VeraRoomTransport } from './signaling.js?v=vera23';
+import { VeraPeerTransport } from './webrtc.js?v=vera24';
+import { VeraGameAdapter } from './game-adapter.js?v=vera24';
+import { VeraRoomTransport } from './signaling.js?v=vera24';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -59,9 +59,18 @@ class VeraMultiplayerSession {
     this.lastMatchAt = 0;
     this.seenEvents = new Set();
     this.ui = {};
+    this.diagTimes = new Map();
     window.setInterval(() => this.pump(), 50);
     this.installUIWatch();
     window.addEventListener('beforeunload', () => this.leave(true));
+  }
+
+  diagnostic(key, ...details) {
+    const now = performance.now();
+    const previous = this.diagTimes.get(key) || 0;
+    if (now - previous < 3000) return;
+    this.diagTimes.set(key, now);
+    console.info('[VERA][multiplayer]', key, ...details);
   }
 
   installUIWatch() {
@@ -396,8 +405,14 @@ class VeraMultiplayerSession {
         this.setStatus('disconnected', peer.closed ? 'The room host closed the room.' : 'The room connection was lost.');
       }
     };
-    transport.onState = (packet, fromSlot) => this.adapter.receiveState(packet, fromSlot);
-    transport.onControl = (message, fromSlot) => this.handleControl(message, fromSlot);
+    transport.onState = (packet, fromSlot) => {
+      this.diagnostic('transport-state-received', { role: this.role, localSlot: this.slot, fromSlot, bytes: packet && packet.byteLength });
+      this.adapter.receiveState(packet, fromSlot);
+    };
+    transport.onControl = (message, fromSlot) => {
+      this.diagnostic('transport-control-received', { role: this.role, localSlot: this.slot, fromSlot, type: message && message.type, eventId: message && message.eventId });
+      this.handleControl(message, fromSlot);
+    };
     transport.onError = error => this.setStatus('error', error.message);
     this.adapter.onLocalShot = event => {
       if (!this.transport || !this.markEvent(event.eventId)) return;
@@ -560,6 +575,7 @@ class VeraMultiplayerSession {
 
   handleControl(message, fromSlot = 1) {
     if (!message || typeof message.type !== 'string') return;
+    this.diagnostic('control-dispatched', { type: message.type, role: this.role, localSlot: this.slot, fromSlot, payloadSlot: message.slot, matchStarted: this.matchStarted });
     if (message.type === 'team-select') {
       const chosen = team(message.team);
       const slot = Number.isInteger(Number(message.slot)) ? Number(message.slot) : Number(fromSlot);
@@ -600,7 +616,11 @@ class VeraMultiplayerSession {
       const shot = Number.isInteger(senderSlot) && senderSlot >= 0 && senderSlot <= 31 && senderSlot !== this.slot
         ? { ...message, slot: senderSlot }
         : message;
-      if (!this.markEvent(shot.eventId)) return;
+      if (!this.markEvent(shot.eventId)) {
+        this.diagnostic('fire-duplicate', { senderSlot, eventId: shot.eventId });
+        return;
+      }
+      this.diagnostic('fire-dispatched', { senderSlot, payloadSlot: message.slot, routedSlot: shot.slot, eventId: shot.eventId, weapon: shot.weapon });
       this.adapter.simulateRemoteShot(shot);
     }
   }
@@ -616,13 +636,23 @@ class VeraMultiplayerSession {
   pump() {
     try {
       if (this.role === 'host' && this.transportConnected && !this.matchAnnounced) this.beginHostMatch();
-      if (!this.transport || !this.transportConnected || !this.matchStarted) return;
+      if (!this.transport || !this.transportConnected || !this.matchStarted) {
+        this.diagnostic('pump-inactive', { role: this.role, hasTransport: !!this.transport, transportConnected: this.transportConnected, matchStarted: this.matchStarted, slot: this.slot });
+        return;
+      }
       const now = performance.now();
       if (now - this.lastStateAt >= 45) {
         const local = this.adapter.encodeLocalState();
-        if (local) this.transport.sendState(local);
+        if (local) {
+          const sent = this.transport.sendState(local);
+          if (!sent) this.diagnostic('local-state-send-failed', { role: this.role, slot: this.slot });
+        } else {
+          this.diagnostic('local-state-unavailable', { role: this.role, slot: this.slot, game: !!this.adapter.game, player: !!(this.adapter.game && this.adapter.game.player) });
+        }
         if (this.role === 'host') {
-          for (const remote of this.adapter.encodeRemoteStates()) this.transport.sendState(remote);
+          const remoteStates = this.adapter.encodeRemoteStates();
+          for (const remote of remoteStates) this.transport.sendState(remote);
+          if (remoteStates.length) this.diagnostic('host-relayed-remote-states', { count: remoteStates.length, remoteSlots: [...this.adapter.remotes.keys()] });
         }
         this.lastStateAt = now;
       }
@@ -631,7 +661,9 @@ class VeraMultiplayerSession {
         if (game) this.transport.sendControl({ type: 'match-state', roundActive: !!game.roundActive, roundTimeLeft: finite(game.roundTimeLeft), mode: game.mode, phase: game.state });
         this.lastMatchAt = now;
       }
-    } catch (error) {}
+    } catch (error) {
+      this.diagnostic('pump-error', String(error && error.stack || error));
+    }
   }
 
   async copyText(value, successMessage) {
