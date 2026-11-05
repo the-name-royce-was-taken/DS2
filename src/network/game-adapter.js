@@ -45,6 +45,7 @@ export class VeraGameAdapter {
     this.onStatus = () => {};
     this.frameHandle = 0;
     this.lastFrameAt = 0;
+    this.lastRemoteClaimAt = 0;
   }
 
   activate(role, slot) {
@@ -58,6 +59,7 @@ export class VeraGameAdapter {
     this.remoteBuffers.clear();
     this.remoteLastSequences.clear();
     this.remoteLastStates.clear();
+    this.lastRemoteClaimAt = 0;
     this.remoteBuffer.length = 0;
     this.remoteLastSequence = -1;
     this.ensureHooks();
@@ -250,8 +252,13 @@ export class VeraGameAdapter {
     if (this.frameHandle) return;
     const frame = now => {
       this.frameHandle = requestAnimationFrame(frame);
-      if (!this.active || !this.remotes.size) return;
-      this.ensureHooks();
+      if (!this.active) return;
+      if (now - this.lastRemoteClaimAt >= 500) {
+        this.lastRemoteClaimAt = now;
+        this.ensureHooks();
+        this.claimRemoteSlots();
+      }
+      if (!this.remotes.size) return;
       for (const slot of this.remotes.keys()) {
         const state = this.sampleRemote(now, slot);
         if (state) this.applyRemoteState(state, false);
@@ -326,10 +333,11 @@ export class VeraGameAdapter {
 
   encodeRemoteStateFor(remote) {
     if (!remote) return null;
+    const sourceState = remote.__veraNetworkState;
     return encodeState({
       slot: Number(remote.__veraRemoteSlot) || 0,
-      sequence: this.stateSequence || 0,
-      tick: this.tick,
+      sequence: sourceState ? sourceState.sequence : (this.stateSequence || 0),
+      tick: sourceState ? sourceState.tick : this.tick,
       x: remote.x, y: remote.y, z: remote.z,
       vx: remote.vx, vy: remote.vy, vz: remote.vz,
       yaw: remote.yaw, pitch: remote._lookPitch || 0,
@@ -340,8 +348,9 @@ export class VeraGameAdapter {
     });
   }
 
-  receiveState(packet) {
+  receiveState(packet, fromSlot = null) {
     const state = decodeState(packet);
+    if (fromSlot != null && Number(fromSlot) === this.slot) return;
     if (!state || !this.active || state.slot === this.slot) {
       if (state && state.slot === this.slot && this.role === 'guest') this.applyAuthoritativeLocal(state);
       return;
@@ -394,7 +403,8 @@ export class VeraGameAdapter {
     if (!remote || !state) return;
     const previous = { x: remote.x, y: remote.y, z: remote.z };
     const distance = distance3(previous, state);
-    if (!immediate && distance > 12) return;
+    if (!immediate && remote.__veraHasNetworkPosition && distance > 12) return;
+    remote.__veraHasNetworkPosition = true;
     remote.x = state.x; remote.y = state.y; remote.z = state.z;
     remote._visY = state.y;
     remote.vx = state.vx; remote.vy = state.vy; remote.vz = state.vz;

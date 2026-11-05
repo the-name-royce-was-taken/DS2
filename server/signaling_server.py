@@ -335,7 +335,7 @@ class SignalingServer:
                 return
             peers = [room["host"], *room["guests"].values()]
         for peer in peers:
-            if peer:
+            if peer and peer is not client:
                 peer.send({"type": "state", "slot": client.slot, "data": data})
 
     def relay_control(self, client: Client, data: Any) -> None:
@@ -349,7 +349,7 @@ class SignalingServer:
                 return
             peers = [room["host"], *room["guests"].values()]
         for peer in peers:
-            if peer:
+            if peer and peer is not client:
                 peer.send({"type": "control", "slot": client.slot, "data": data})
 
     def send_room_list(self, client: Client) -> None:
