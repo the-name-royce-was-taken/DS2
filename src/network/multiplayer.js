@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera20';
-import { VeraGameAdapter } from './game-adapter.js?v=vera20';
-import { VeraRoomTransport } from './signaling.js?v=vera20';
+import { VeraPeerTransport } from './webrtc.js?v=vera22';
+import { VeraGameAdapter } from './game-adapter.js?v=vera22';
+import { VeraRoomTransport } from './signaling.js?v=vera22';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -396,7 +396,7 @@ class VeraMultiplayerSession {
         this.setStatus('disconnected', peer.closed ? 'The room host closed the room.' : 'The room connection was lost.');
       }
     };
-    transport.onState = packet => this.adapter.receiveState(packet);
+    transport.onState = (packet, fromSlot) => this.adapter.receiveState(packet, fromSlot);
     transport.onControl = (message, fromSlot) => this.handleControl(message, fromSlot);
     transport.onError = error => this.setStatus('error', error.message);
     this.adapter.onLocalShot = event => {
