@@ -1,5 +1,5 @@
 import { VeraPeerTransport } from './webrtc.js?v=vera34';
-import { VeraGameAdapter } from './game-adapter.js?v=vera34';
+import { VeraGameAdapter } from './game-adapter.js?v=vera35';
 import { VeraRoomTransport } from './signaling.js?v=vera34';
 
 const STATUS_TEXT = Object.freeze({
@@ -404,6 +404,7 @@ class VeraMultiplayerSession {
         if (peer.slot != null) this.players.set(Number(peer.slot), { slot: Number(peer.slot), role: peer.role || 'guest' });
         if (Array.isArray(peer.players)) this.setPlayerRoster(peer.players);
         this.transportConnected = true;
+        this.announcePlayerName();
         this.setStatus(this.role === 'host' && !this.matchStarted && !peer.joined ? 'waiting' : 'connected',
           this.role === 'host' && !peer.joined ? 'Room created. Share the code and wait for players.' : 'Room connected. Choose T or CT.');
         this.updateUI();
@@ -412,6 +413,7 @@ class VeraMultiplayerSession {
           this.players.delete(Number(peer.slot));
           this.playerTeams.delete(Number(peer.slot));
           this.adapter.remotePlayers.delete(Number(peer.slot));
+          this.adapter.remoteNames.delete(Number(peer.slot));
           this.adapter.removeRemote(Number(peer.slot));
           this.updateUI();
           return;
@@ -458,14 +460,32 @@ class VeraMultiplayerSession {
     for (const entry of players) {
       const slot = Number(entry && entry.slot);
       if (!Number.isInteger(slot) || slot < 0 || slot > 31) continue;
-      this.players.set(slot, { slot, role: entry.role === 'host' ? 'host' : 'guest' });
+      const existing = this.players.get(slot);
+      const name = typeof entry.name === 'string' ? entry.name : (existing && existing.name) || '';
+      this.players.set(slot, { slot, role: entry.role === 'host' ? 'host' : 'guest', name });
       if (team(entry.team)) this.playerTeams.set(slot, team(entry.team));
     }
+    this.syncRemoteRoster();
+    this.diagnostic('multiplayer-roster-updated', { role: this.role, localSlot: this.slot, players: [...this.players.values()], teams: [...this.playerTeams.entries()] });
+  }
+
+  syncRemoteRoster() {
     this.adapter.setRemotePlayers([...this.players.values()].map(player => ({
       slot: player.slot,
-      team: this.playerTeams.get(player.slot) || ''
+      team: this.playerTeams.get(player.slot) || '',
+      name: player.name || ''
     })));
-    this.diagnostic('multiplayer-roster-updated', { role: this.role, localSlot: this.slot, players: [...this.players.values()], teams: [...this.playerTeams.entries()] });
+  }
+
+  announcePlayerName() {
+    const name = text(localStorage.getItem('vera_name') || 'Player');
+    const existing = this.players.get(this.slot) || { slot: this.slot, role: this.role };
+    this.players.set(this.slot, { ...existing, name });
+    this.syncRemoteRoster();
+    if (this.transport && this.transportConnected) {
+      const sent = this.transport.sendControl({ type: 'player-name', name });
+      this.diagnostic(sent ? 'player-name-sent' : 'player-name-send-failed', { slot: this.slot, name });
+    }
   }
 
   selectTeam(value) {
@@ -473,11 +493,9 @@ class VeraMultiplayerSession {
     if (!chosen || !this.transportConnected || !this.transport || this.matchStarted) return;
     this.localTeam = chosen;
     this.playerTeams.set(this.slot, chosen);
-    this.players.set(this.slot, { slot: this.slot, role: this.role, team: chosen });
-    this.adapter.setRemotePlayers([...this.players.values()].map(player => ({
-      slot: player.slot,
-      team: this.playerTeams.get(player.slot) || ''
-    })));
+    const localPlayer = this.players.get(this.slot) || {};
+    this.players.set(this.slot, { ...localPlayer, slot: this.slot, role: this.role, team: chosen });
+    this.syncRemoteRoster();
     this.transport.sendControl({ type: 'team-select', team: chosen, slot: this.slot });
     this.setStatus('waiting', this.role === 'host'
       ? 'Team selected. Waiting for another player to choose a side.'
@@ -564,7 +582,7 @@ class VeraMultiplayerSession {
     this.matchConfig = { map: selected.map, mode: 'dm' };
     const players = [...this.players.values()]
       .filter(player => this.playerTeams.has(player.slot))
-      .map(player => ({ slot: player.slot, role: player.role, team: this.playerTeams.get(player.slot) }));
+      .map(player => ({ slot: player.slot, role: player.role, team: this.playerTeams.get(player.slot), name: player.name || '' }));
     this.adapter.setRemotePlayers(players);
     const message = {
       type: 'match-start',
@@ -604,6 +622,18 @@ class VeraMultiplayerSession {
   handleControl(message, fromSlot = 1) {
     if (!message || typeof message.type !== 'string') return;
     this.diagnostic('control-dispatched', { type: message.type, role: this.role, localSlot: this.slot, fromSlot, payloadSlot: message.slot, matchStarted: this.matchStarted });
+    if (message.type === 'player-name') {
+      const slot = Number(fromSlot);
+      if (!Number.isInteger(slot) || slot < 0 || slot > 31 || slot === this.slot ||
+          typeof message.name !== 'string' || !message.name || message.name.length > 64) return;
+      const existing = this.players.get(slot) || { slot, role: slot === 0 ? 'host' : 'guest' };
+      const shouldReply = !existing.name;
+      this.players.set(slot, { ...existing, name: message.name });
+      this.syncRemoteRoster();
+      this.diagnostic('player-name-received', { slot, name: message.name });
+      if (shouldReply) this.announcePlayerName();
+      return;
+    }
     if (message.type === 'team-select') {
       const chosen = team(message.team);
       const slot = Number.isInteger(Number(message.slot)) ? Number(message.slot) : Number(fromSlot);
@@ -611,7 +641,7 @@ class VeraMultiplayerSession {
       this.playerTeams.set(slot, chosen);
       const existing = this.players.get(slot) || { slot, role: slot === 0 ? 'host' : 'guest' };
       this.players.set(slot, { ...existing, team: chosen });
-      this.adapter.setRemotePlayers([...this.players.values()].map(player => ({ slot: player.slot, team: this.playerTeams.get(player.slot) || '' })));
+      this.syncRemoteRoster();
       this.updateUI();
       if (this.role === 'host') this.beginHostMatch();
       return;
