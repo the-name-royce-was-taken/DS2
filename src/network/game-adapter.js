@@ -16,6 +16,12 @@ function angleLerp(a, b, amount) {
   return a + delta * amount;
 }
 
+function isNewerSequence(next, previous) {
+  if (!Number.isFinite(previous) || previous < 0) return true;
+  const delta = (Number(next) - Number(previous)) >>> 0;
+  return delta !== 0 && delta < 0x80000000;
+}
+
 export class VeraGameAdapter {
   constructor() {
     this.game = null;
@@ -31,7 +37,9 @@ export class VeraGameAdapter {
     this.remoteBuffers = new Map();
     this.remoteLastSequence = -1;
     this.remoteLastSequences = new Map();
+    this.remoteRelaySequences = new Map();
     this.remoteLastState = null;
+    this.authoritativeLocalSequence = -1;
     this.remoteLastStates = new Map();
     this.localSequence = 0;
     this.stateSequence = 0;
@@ -75,7 +83,10 @@ export class VeraGameAdapter {
     this.remotePlayers.clear();
     this.remoteBuffers.clear();
     this.remoteLastSequences.clear();
+    this.remoteRelaySequences.clear();
+    this.remoteLastState = null;
     this.remoteLastStates.clear();
+    this.authoritativeLocalSequence = -1;
     this.lastRemoteClaimAt = 0;
     this.remoteBuffer.length = 0;
     this.remoteLastSequence = -1;
@@ -233,13 +244,7 @@ export class VeraGameAdapter {
     candidate.update = function veraRemoteUpdate(delta) { adapter.updateRemoteEntity(this, delta); };
     candidate.spawn = function veraRemoteSpawn() { return adapter.spawnRemoteEntity(this); };
     candidate.__veraNetworkOriginal = original;
-    if (created && typeof original.spawn === 'function') {
-      try {
-        original.spawn.call(candidate);
-      } catch (error) {
-        this.diagnostic('remote-bot-spawn-failed', { slot: normalizedSlot, error: String(error && error.stack || error) });
-      }
-    }
+    if (created && typeof original.spawn === 'function') this.spawnRemoteEntity(candidate);
     return candidate;
   }
 
@@ -253,10 +258,15 @@ export class VeraGameAdapter {
         console.error('[VERA] Remote spawn failed:', slot, error);
       }
     }
+    // A respawn must use the engine-selected spawn, not cached coordinates
+    // from before death or from a previous occupant of this slot.
+    const buffer = this.remoteBuffers.get(slot);
+    if (buffer) buffer.length = 0;
+    this.remoteLastStates.delete(slot);
+    remote.__veraNetworkState = null;
+    remote.__veraHasNetworkPosition = false;
     remote.__veraLastAlive = true;
-    const lastState = this.remoteLastStates.get(slot) || this.remoteLastState;
-    if (lastState) this.applyRemoteState(lastState, true);
-    else this.placeRemoteAtFallback(remote);
+    this.diagnostic('remote-spawn-awaiting-state', { slot, position: [remote.x, remote.y, remote.z], lastSequence: this.remoteLastSequences.get(slot) });
     return remote;
   }
 
@@ -389,10 +399,16 @@ export class VeraGameAdapter {
   encodeRemoteStateFor(remote) {
     if (!remote) return null;
     const sourceState = remote.__veraNetworkState;
+    // Never relay an unpositioned placeholder. The host assigns a fresh,
+    // monotonic sequence to each relayed remote-player stream.
+    if (!sourceState) return null;
+    const slot = Number(remote.__veraRemoteSlot) || 0;
+    const sequence = ((this.remoteRelaySequences.get(slot) || 0) + 1) >>> 0;
+    this.remoteRelaySequences.set(slot, sequence);
     return encodeState({
-      slot: Number(remote.__veraRemoteSlot) || 0,
-      sequence: sourceState ? sourceState.sequence : (this.stateSequence || 0),
-      tick: sourceState ? sourceState.tick : this.tick,
+      slot,
+      sequence,
+      tick: this.tick,
       x: remote.x, y: remote.y, z: remote.z,
       vx: remote.vx, vy: remote.vy, vz: remote.vz,
       yaw: remote.yaw, pitch: remote._lookPitch || 0,
@@ -423,14 +439,21 @@ export class VeraGameAdapter {
       state.slot = senderSlot;
     }
     if (state.slot === this.slot) {
-      this.diagnostic('state-mapped-to-local', { senderSlot, payloadSlot, role: this.role, localSlot: this.slot });
-      if (state && state.slot === this.slot && this.role === 'guest') this.applyAuthoritativeLocal(state);
+      this.diagnostic('state-mapped-to-local', { senderSlot, payloadSlot, role: this.role, localSlot: this.slot, sequence: state.sequence });
+      if (this.role === 'guest') {
+        if (!isNewerSequence(state.sequence, this.authoritativeLocalSequence)) {
+          this.diagnostic('authoritative-local-stale', { sequence: state.sequence, lastSequence: this.authoritativeLocalSequence });
+          return;
+        }
+        this.authoritativeLocalSequence = state.sequence;
+        this.applyAuthoritativeLocal(state);
+      }
       return;
     }
     if (!this.remotePlayers.has(state.slot)) this.remotePlayers.set(state.slot, '');
     this.claimRemoteSlots();
     const lastSequence = this.remoteLastSequences.get(state.slot);
-    if (Number.isFinite(lastSequence) && state.sequence <= lastSequence && lastSequence - state.sequence < 0x7fffffff) {
+    if (!isNewerSequence(state.sequence, lastSequence)) {
       this.diagnostic('state-stale', { senderSlot, payloadSlot, mappedSlot: state.slot, sequence: state.sequence, lastSequence });
       return;
     }
@@ -520,14 +543,8 @@ export class VeraGameAdapter {
     } else if (state.alive && !player.alive && typeof game.respawnPlayer === 'function') {
       try { game.respawnPlayer(); } catch (error) {}
     }
-    const correction = { x: state.x, y: state.y, z: state.z };
-    if (distance3(player, correction) > 2) {
-      player.x = state.x; player.y = state.y; player.z = state.z;
-    } else {
-      player.x += (state.x - player.x) * 0.18;
-      player.y += (state.y - player.y) * 0.18;
-      player.z += (state.z - player.z) * 0.18;
-    }
+    // The guest owns local movement and view direction. The host echo is
+    // authoritative for health/life state, not for the guest's coordinates.
     player.health = state.health;
     player.armor = state.armor;
     player.alive = state.alive;
@@ -594,6 +611,7 @@ export class VeraGameAdapter {
       this.remoteBuffer.length = 0;
       this.remoteBuffers.clear();
       this.remoteLastSequences.clear();
+      this.remoteRelaySequences.clear();
       this.remoteLastStates.clear();
       this.remoteLastState = null;
     } else {
@@ -601,6 +619,7 @@ export class VeraGameAdapter {
       this.remotePlayers.delete(remoteSlot);
       this.remoteBuffers.delete(remoteSlot);
       this.remoteLastSequences.delete(remoteSlot);
+      this.remoteRelaySequences.delete(remoteSlot);
       this.remoteLastStates.delete(remoteSlot);
       if (this.remote === targets[0][1]) this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
     }
