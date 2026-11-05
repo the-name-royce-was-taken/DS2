@@ -16,6 +16,12 @@ function angleLerp(a, b, amount) {
   return a + delta * amount;
 }
 
+function isNewerSequence(next, previous) {
+  if (!Number.isFinite(previous) || previous < 0) return true;
+  const delta = (Number(next) - Number(previous)) >>> 0;
+  return delta !== 0 && delta < 0x80000000;
+}
+
 export class VeraGameAdapter {
   constructor() {
     this.game = null;
@@ -35,6 +41,7 @@ export class VeraGameAdapter {
     this.remoteLastStates = new Map();
     this.localSequence = 0;
     this.stateSequence = 0;
+    this.authoritativeLocalSequence = -1;
     this.tick = 0;
     this.suppressNetwork = false;
     this.originalSetup = null;
@@ -79,6 +86,7 @@ export class VeraGameAdapter {
     this.lastRemoteClaimAt = 0;
     this.remoteBuffer.length = 0;
     this.remoteLastSequence = -1;
+    this.authoritativeLocalSequence = -1;
     this.ensureHooks();
     this.diagnostic('activate', { role: this.role, slot: this.slot, game: !!this.game, botManager: !!(this.game && this.game.botMgr) });
     this.startFrameLoop();
@@ -103,6 +111,33 @@ export class VeraGameAdapter {
         return result;
       };
       manager.__veraNetworkSetup = true;
+    }
+    if (!game.__veraNetworkMeleeHook && typeof game.playerMelee === 'function') {
+      this.originalPlayerMelee = game.playerMelee;
+      const adapter = this;
+      game.playerMelee = function veraNetworkPlayerMelee(damage, weapon, backDamage, heavy) {
+        const result = adapter.originalPlayerMelee.apply(this, arguments);
+        if (adapter.active && !adapter.suppressNetwork && weapon && weapon.class === 'knife') {
+          const player = adapter.game && adapter.game.player;
+          const yaw = finite(player && player.yaw);
+          const pitch = finite(player && player.pitch);
+          const cp = Math.cos(pitch);
+          adapter.onLocalShot({
+            type: 'melee',
+            eventId: `${adapter.slot}:${adapter.localSequence++}`,
+            tick: adapter.tick,
+            weapon: 'knife',
+            damage: finite(damage),
+            backDamage: finite(backDamage),
+            heavy: !!heavy,
+            dirX: -Math.sin(yaw) * cp,
+            dirY: Math.sin(pitch),
+            dirZ: -Math.cos(yaw) * cp
+          });
+        }
+        return result;
+      };
+      game.__veraNetworkMeleeHook = true;
     }
     if (!game.__veraNetworkFireHook && typeof game.fireBullet === 'function') {
       this.originalFireBullet = game.fireBullet;
@@ -233,13 +268,7 @@ export class VeraGameAdapter {
     candidate.update = function veraRemoteUpdate(delta) { adapter.updateRemoteEntity(this, delta); };
     candidate.spawn = function veraRemoteSpawn() { return adapter.spawnRemoteEntity(this); };
     candidate.__veraNetworkOriginal = original;
-    if (created && typeof original.spawn === 'function') {
-      try {
-        original.spawn.call(candidate);
-      } catch (error) {
-        this.diagnostic('remote-bot-spawn-failed', { slot: normalizedSlot, error: String(error && error.stack || error) });
-      }
-    }
+    if (created && typeof original.spawn === 'function') this.spawnRemoteEntity(candidate);
     return candidate;
   }
 
@@ -253,10 +282,15 @@ export class VeraGameAdapter {
         console.error('[VERA] Remote spawn failed:', slot, error);
       }
     }
+    // Never replay buffered pre-spawn coordinates. The engine has just chosen
+    // a fresh team spawn; wait for the next ordered state packet from this slot.
+    const buffer = this.remoteBuffers.get(slot);
+    if (buffer) buffer.length = 0;
+    this.remoteLastStates.delete(slot);
+    remote.__veraNetworkState = null;
+    remote.__veraHasNetworkPosition = false;
     remote.__veraLastAlive = true;
-    const lastState = this.remoteLastStates.get(slot) || this.remoteLastState;
-    if (lastState) this.applyRemoteState(lastState, true);
-    else this.placeRemoteAtFallback(remote);
+    this.diagnostic('remote-spawn-awaiting-state', { slot, position: [remote.x, remote.y, remote.z], lastSequence: this.remoteLastSequences.get(slot) });
     return remote;
   }
 
@@ -423,14 +457,21 @@ export class VeraGameAdapter {
       state.slot = senderSlot;
     }
     if (state.slot === this.slot) {
-      this.diagnostic('state-mapped-to-local', { senderSlot, payloadSlot, role: this.role, localSlot: this.slot });
-      if (state && state.slot === this.slot && this.role === 'guest') this.applyAuthoritativeLocal(state);
+      this.diagnostic('state-mapped-to-local', { senderSlot, payloadSlot, role: this.role, localSlot: this.slot, sequence: state.sequence });
+      if (this.role === 'guest') {
+        if (!isNewerSequence(state.sequence, this.authoritativeLocalSequence)) {
+          this.diagnostic('authoritative-local-stale', { sequence: state.sequence, lastSequence: this.authoritativeLocalSequence });
+          return;
+        }
+        this.authoritativeLocalSequence = state.sequence;
+        this.applyAuthoritativeLocal(state);
+      }
       return;
     }
     if (!this.remotePlayers.has(state.slot)) this.remotePlayers.set(state.slot, '');
     this.claimRemoteSlots();
     const lastSequence = this.remoteLastSequences.get(state.slot);
-    if (Number.isFinite(lastSequence) && state.sequence <= lastSequence && lastSequence - state.sequence < 0x7fffffff) {
+    if (!isNewerSequence(state.sequence, lastSequence)) {
       this.diagnostic('state-stale', { senderSlot, payloadSlot, mappedSlot: state.slot, sequence: state.sequence, lastSequence });
       return;
     }
@@ -520,14 +561,9 @@ export class VeraGameAdapter {
     } else if (state.alive && !player.alive && typeof game.respawnPlayer === 'function') {
       try { game.respawnPlayer(); } catch (error) {}
     }
-    const correction = { x: state.x, y: state.y, z: state.z };
-    if (distance3(player, correction) > 2) {
-      player.x = state.x; player.y = state.y; player.z = state.z;
-    } else {
-      player.x += (state.x - player.x) * 0.18;
-      player.y += (state.y - player.y) * 0.18;
-      player.z += (state.z - player.z) * 0.18;
-    }
+    // The guest owns its movement and view direction. The host's copy of that
+    // player is an echo used for gameplay/health authority, not a movement
+    // controller; applying its coordinates causes visible rubber-banding.
     player.health = state.health;
     player.armor = state.armor;
     player.alive = state.alive;
@@ -618,10 +654,15 @@ export class VeraGameAdapter {
       this.game.fireBullet = this.originalFireBullet;
       delete this.game.__veraNetworkFireHook;
     }
+    if (this.game && this.game.__veraNetworkMeleeHook && this.originalPlayerMelee) {
+      this.game.playerMelee = this.originalPlayerMelee;
+      delete this.game.__veraNetworkMeleeHook;
+    }
     this.stopFrameLoop();
     this.game = null;
     this.originalSetup = null;
     this.originalFireBullet = null;
+    this.originalPlayerMelee = null;
     this.remoteOriginals.clear();
   }
 }
