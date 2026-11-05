@@ -31,6 +31,7 @@ export class VeraGameAdapter {
     this.remote = null;
     this.remotes = new Map();
     this.remotePlayers = new Map();
+    this.remoteNames = new Map();
     this.remoteTeam = '';
     this.remoteTeamOverride = '';
     this.remoteBuffer = [];
@@ -82,6 +83,7 @@ export class VeraGameAdapter {
     this.remoteTeamOverride = '';
     this.remotes.clear();
     this.remotePlayers.clear();
+    this.remoteNames.clear();
     this.remoteBuffers.clear();
     this.remoteLastSequences.clear();
     this.remoteRelaySequences.clear();
@@ -198,10 +200,12 @@ export class VeraGameAdapter {
 
   setRemotePlayers(players = []) {
     this.remotePlayers.clear();
+    this.remoteNames.clear();
     for (const player of players) {
       const slot = Number(player && player.slot);
       if (!Number.isInteger(slot) || slot < 0 || slot > 31 || slot === this.slot) continue;
       this.remotePlayers.set(slot, player.team === 'CT' || player.team === 'T' ? player.team : '');
+      if (typeof player.name === 'string' && player.name) this.remoteNames.set(slot, player.name);
     }
     this.diagnostic('roster', { role: this.role, localSlot: this.slot, slots: [...this.remotePlayers.keys()], teams: [...this.remotePlayers.entries()] });
     this.claimRemoteSlots();
@@ -226,6 +230,7 @@ export class VeraGameAdapter {
         existing.team = remoteTeam;
         this.remoteTeam = remoteTeam;
       }
+      existing.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
       return existing;
     }
     let candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
@@ -270,7 +275,7 @@ export class VeraGameAdapter {
     // `isPlayer` would make the existing kill handler drop the local player's
     // inventory when a remote client dies.
     candidate.__veraRemotePlayer = true;
-    candidate.name = `Player ${normalizedSlot}`;
+    candidate.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
     const adapter = this;
     candidate.update = function veraRemoteUpdate(delta) { adapter.updateRemoteEntity(this, delta); };
     candidate.spawn = function veraRemoteSpawn() { return adapter.spawnRemoteEntity(this); };
