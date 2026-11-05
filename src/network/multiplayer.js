@@ -436,7 +436,7 @@ class VeraMultiplayerSession {
     this.adapter.onLocalShot = event => {
       if (!this.transport || !this.markEvent(event.eventId)) return;
       const sent = this.transport.sendControl({ ...event, from: this.role, slot: this.slot });
-      this.diagnostic(sent ? 'fire-control-sent' : 'fire-control-send-failed', { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
+      this.diagnostic(event.type === 'melee' ? (sent ? 'melee-control-sent' : 'melee-control-send-failed') : (sent ? 'fire-control-sent' : 'fire-control-send-failed'), { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
     };
   }
 
