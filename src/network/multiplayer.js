@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera26';
-import { VeraGameAdapter } from './game-adapter.js?v=vera26';
-import { VeraRoomTransport } from './signaling.js?v=vera26';
+import { VeraPeerTransport } from './webrtc.js?v=vera27';
+import { VeraGameAdapter } from './game-adapter.js?v=vera27';
+import { VeraRoomTransport } from './signaling.js?v=vera27';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -55,6 +55,7 @@ class VeraMultiplayerSession {
     this.matchConfig = null;
     this.matchAnnounced = false;
     this.matchStarted = false;
+    this.matchStarting = false;
     this.lastStateAt = 0;
     this.lastMatchAt = 0;
     this.seenEvents = new Set();
@@ -578,12 +579,15 @@ class VeraMultiplayerSession {
   }
 
   async beginMatch(config, team, players = []) {
-    if (this.matchStarted) return;
-    this.matchStarted = true;
+    if (this.matchStarted || this.matchStarting) return;
+    this.matchStarting = true;
+    const startingRole = this.role;
     if (players.length) this.setPlayerRoster(players);
     this.setStatus('connecting');
     try {
       await this.adapter.startMatch({ map: config.map, mode: 'dm', team });
+      if (!this.adapter.active || this.role !== startingRole) return;
+      this.matchStarted = true;
       this.setDiagnosticsEnabled(true);
       this.transport.sendControl({ type: 'match-ready', from: this.role });
       this.setStatus('match-ready');
@@ -592,6 +596,8 @@ class VeraMultiplayerSession {
       this.matchStarted = false;
       this.setDiagnosticsEnabled(false);
       this.setStatus('error', error.message);
+    } finally {
+      this.matchStarting = false;
     }
   }
 
@@ -719,6 +725,7 @@ class VeraMultiplayerSession {
     this.adapter.remoteTeamOverride = '';
     this.transportConnected = false;
     this.matchStarted = false;
+    this.matchStarting = false;
     this.matchAnnounced = false;
     this.seenEvents.clear();
     this.setStatus('offline');
