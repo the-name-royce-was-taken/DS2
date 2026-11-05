@@ -70,7 +70,7 @@ class VeraMultiplayerSession {
     const previous = this.diagTimes.get(key) || 0;
     if (now - previous < 3000) return;
     this.diagTimes.set(key, now);
-    console.info('[VERA][multiplayer]', key, ...details);
+    console.log('[VERA][multiplayer]', key, ...details);
   }
 
   installUIWatch() {
@@ -314,6 +314,7 @@ class VeraMultiplayerSession {
 
   updateUI() {
     if (!this.ui.panel) return;
+    this.diagnostic('multiplayer-ui-update', { role: this.role, slot: this.slot, status: this.statusValue, connected: this.transportConnected, matchStarted: this.matchStarted, playerCount: this.players.size });
     this.ui.status.textContent = STATUS_TEXT[this.statusValue] || text(this.statusValue).toUpperCase();
     this.ui.error.textContent = this.statusDetail || '';
     this.ui.error.classList.toggle('is-error', this.statusValue === 'error');
@@ -416,7 +417,8 @@ class VeraMultiplayerSession {
     transport.onError = error => this.setStatus('error', error.message);
     this.adapter.onLocalShot = event => {
       if (!this.transport || !this.markEvent(event.eventId)) return;
-      this.transport.sendControl({ ...event, from: this.role, slot: this.slot });
+      const sent = this.transport.sendControl({ ...event, from: this.role, slot: this.slot });
+      this.diagnostic(sent ? 'fire-control-sent' : 'fire-control-send-failed', { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
     };
   }
 
@@ -445,6 +447,7 @@ class VeraMultiplayerSession {
       slot: player.slot,
       team: this.playerTeams.get(player.slot) || ''
     })));
+    this.diagnostic('multiplayer-roster-updated', { role: this.role, localSlot: this.slot, players: [...this.players.values()], teams: [...this.playerTeams.entries()] });
   }
 
   selectTeam(value) {
@@ -645,20 +648,26 @@ class VeraMultiplayerSession {
         const local = this.adapter.encodeLocalState();
         if (local) {
           const sent = this.transport.sendState(local);
-          if (!sent) this.diagnostic('local-state-send-failed', { role: this.role, slot: this.slot });
+          this.diagnostic(sent ? 'local-state-packet-sent' : 'local-state-send-failed', { role: this.role, slot: this.slot, tick: this.adapter.tick, sequence: this.adapter.stateSequence, bytes: local.byteLength, position: [this.adapter.game.player.x, this.adapter.game.player.y, this.adapter.game.player.z] });
         } else {
           this.diagnostic('local-state-unavailable', { role: this.role, slot: this.slot, game: !!this.adapter.game, player: !!(this.adapter.game && this.adapter.game.player) });
         }
         if (this.role === 'host') {
           const remoteStates = this.adapter.encodeRemoteStates();
-          for (const remote of remoteStates) this.transport.sendState(remote);
+          for (const remote of remoteStates) {
+            const sent = this.transport.sendState(remote);
+            this.diagnostic(sent ? 'host-remote-state-relay-sent' : 'host-remote-state-relay-failed', { role: this.role, bytes: remote.byteLength });
+          }
           if (remoteStates.length) this.diagnostic('host-relayed-remote-states', { count: remoteStates.length, remoteSlots: [...this.adapter.remotes.keys()] });
         }
         this.lastStateAt = now;
       }
       if (this.role === 'host' && now - this.lastMatchAt >= 200) {
         const game = this.adapter.game;
-        if (game) this.transport.sendControl({ type: 'match-state', roundActive: !!game.roundActive, roundTimeLeft: finite(game.roundTimeLeft), mode: game.mode, phase: game.state });
+        if (game) {
+          const sent = this.transport.sendControl({ type: 'match-state', roundActive: !!game.roundActive, roundTimeLeft: finite(game.roundTimeLeft), mode: game.mode, phase: game.state });
+          this.diagnostic(sent ? 'match-update-sent' : 'match-update-send-failed', { role: this.role, phase: game.state, roundActive: !!game.roundActive });
+        }
         this.lastMatchAt = now;
       }
     } catch (error) {
