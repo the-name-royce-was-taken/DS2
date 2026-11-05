@@ -46,6 +46,8 @@ export class VeraGameAdapter {
     this.frameHandle = 0;
     this.lastFrameAt = 0;
     this.lastRemoteClaimAt = 0;
+    this.botConstructor = null;
+    this.botDifficulty = 2;
     this.diagTimes = new Map();
     this.diagnosticsEnabled = false;
   }
@@ -92,6 +94,11 @@ export class VeraGameAdapter {
       const adapter = this;
       manager.setup = function veraNetworkSetup() {
         const result = adapter.originalSetup.apply(this, arguments);
+        const template = this.bots && this.bots[0];
+        if (template) {
+          adapter.botConstructor = template.constructor;
+          adapter.botDifficulty = finite(template.difficulty, adapter.botDifficulty);
+        }
         if (adapter.active) adapter.claimRemoteSlots();
         return result;
       };
@@ -179,12 +186,28 @@ export class VeraGameAdapter {
       }
       return existing;
     }
-    const candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
+    let candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
+    let created = false;
     if (!candidate) {
-      this.diagnostic('claim-no-bot', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length, remoteSlots: [...this.remotes.keys()] });
-      return null;
+      const template = manager.bots && manager.bots[0];
+      const Bot = this.botConstructor || (template && template.constructor);
+      if (typeof Bot !== 'function') {
+        this.diagnostic('claim-no-bot-constructor', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length });
+        return null;
+      }
+      const localTeam = this.game && this.game.player && this.game.player.team;
+      const botTeam = remoteTeam === 'CT' || remoteTeam === 'T'
+        ? remoteTeam
+        : (this.remoteTeamOverride || (localTeam === 'CT' ? 'T' : 'CT'));
+      const difficulty = template ? template.difficulty : this.botDifficulty;
+      candidate = new Bot(this.game, botTeam, `Player ${normalizedSlot}`, difficulty);
+      manager.bots.push(candidate);
+      this.botConstructor = Bot;
+      this.botDifficulty = finite(difficulty, this.botDifficulty);
+      created = true;
+      this.diagnostic('remote-bot-created', { remoteSlot: normalizedSlot, team: botTeam, botCount: manager.bots.length });
     }
-    this.diagnostic('player-to-bot-mapped', { remoteSlot: normalizedSlot, botName: candidate.name, botAlive: candidate.alive, botCount: manager.bots && manager.bots.length });
+    this.diagnostic('player-to-bot-mapped', { remoteSlot: normalizedSlot, botName: candidate.name, botAlive: candidate.alive, botCount: manager.bots && manager.bots.length, created });
     const original = {
       update: candidate.update,
       spawn: candidate.spawn,
@@ -210,6 +233,13 @@ export class VeraGameAdapter {
     candidate.update = function veraRemoteUpdate(delta) { adapter.updateRemoteEntity(this, delta); };
     candidate.spawn = function veraRemoteSpawn() { return adapter.spawnRemoteEntity(this); };
     candidate.__veraNetworkOriginal = original;
+    if (created && typeof original.spawn === 'function') {
+      try {
+        original.spawn.call(candidate);
+      } catch (error) {
+        this.diagnostic('remote-bot-spawn-failed', { slot: normalizedSlot, error: String(error && error.stack || error) });
+      }
+    }
     return candidate;
   }
 
