@@ -46,6 +46,15 @@ export class VeraSignalingClient {
     this.onStatus = noop;
     this.onMessage = noop;
     this.onError = noop;
+    this.diagTimes = new Map();
+  }
+
+  diagnostic(key, ...details) {
+    const now = performance.now();
+    const previous = this.diagTimes.get(key) || 0;
+    if (now - previous < 3000) return;
+    this.diagTimes.set(key, now);
+    console.log('[VERA][signaling]', key, ...details);
   }
 
   status(value, detail = '') {
@@ -66,10 +75,15 @@ export class VeraSignalingClient {
         if (!settled) { settled = true; resolve(); }
       };
       socket.onmessage = event => {
+        const raw = String(event.data || '');
         try {
-          const message = JSON.parse(String(event.data || ''));
+          const message = JSON.parse(raw);
+          this.diagnostic('websocket-received', { type: message && message.type, bytes: raw.length, slot: message && message.slot });
           if (message && typeof message.type === 'string') this.onMessage(message);
-        } catch (error) {}
+          else this.diagnostic('websocket-message-invalid', { bytes: raw.length });
+        } catch (error) {
+          this.diagnostic('websocket-json-error', { bytes: raw.length, error: String(error) });
+        }
       };
       socket.onerror = () => {
         const error = new Error('The Vera signaling server could not be reached.');
@@ -90,7 +104,9 @@ export class VeraSignalingClient {
   send(action, payload = {}) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
     try {
-      this.socket.send(JSON.stringify({ action, ...payload }));
+      const encoded = JSON.stringify({ action, ...payload });
+      this.socket.send(encoded);
+      this.diagnostic('websocket-sent', { action, bytes: encoded.length, readyState: this.socket.readyState });
       return true;
     } catch (error) {
       this.onError(error);
@@ -140,6 +156,7 @@ export class VeraRoomTransport {
 
   handleMessage(message) {
     if (!message || typeof message.type !== 'string') return;
+    this.client.diagnostic('message-processing', { type: message.type, slot: message.slot, dataType: message.data && message.data.type });
     if (message.type === 'room-created' || message.type === 'room-joined') {
       if (this.roomWaiter) this.roomWaiter.resolve(message);
       this.onRoom(message);
@@ -160,6 +177,7 @@ export class VeraRoomTransport {
     }
     if (message.type === 'state') {
       const packet = base64ToArrayBuffer(message.data);
+      this.client.diagnostic(packet ? 'state-packet-decoded' : 'state-packet-decode-failed', { fromSlot: message.slot, bytes: packet && packet.byteLength, encodedBytes: message.data && message.data.length });
       if (packet) this.onState(packet, Number(message.slot));
       return;
     }

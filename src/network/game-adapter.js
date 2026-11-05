@@ -54,7 +54,7 @@ export class VeraGameAdapter {
     const previous = this.diagTimes.get(key) || 0;
     if (now - previous < 3000) return;
     this.diagTimes.set(key, now);
-    console.info('[VERA][adapter]', key, ...details);
+    console.log('[VERA][adapter]', key, ...details);
   }
 
   activate(role, slot) {
@@ -177,7 +177,7 @@ export class VeraGameAdapter {
       this.diagnostic('claim-no-bot', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length, remoteSlots: [...this.remotes.keys()] });
       return null;
     }
-    this.diagnostic('claim-success', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length, candidateName: candidate.name, candidateAlive: candidate.alive });
+    this.diagnostic('player-to-bot-mapped', { remoteSlot: normalizedSlot, botName: candidate.name, botAlive: candidate.alive, botCount: manager.bots && manager.bots.length });
     const original = {
       update: candidate.update,
       spawn: candidate.spawn,
@@ -368,6 +368,7 @@ export class VeraGameAdapter {
 
   receiveState(packet, fromSlot = null) {
     const state = decodeState(packet);
+    this.diagnostic(state ? 'packet-processing-decoded' : 'packet-processing-decode-failed', { active: this.active, role: this.role, localSlot: this.slot, packetBytes: packet && packet.byteLength, decodedSlot: state && state.slot, sequence: state && state.sequence });
     if (!state || !this.active) {
       this.diagnostic('state-invalid-or-inactive', { decoded: !!state, active: this.active, role: this.role, localSlot: this.slot, packetBytes: packet && packet.byteLength });
       return;
@@ -403,6 +404,7 @@ export class VeraGameAdapter {
     buffer.push({ at: now, state });
     while (buffer.length > 12) buffer.shift();
     this.remoteBuffers.set(state.slot, buffer);
+    this.diagnostic('packet-buffered-for-remote', { slot: state.slot, sequence: state.sequence, buffered: buffer.length, remoteMapped: this.remotes.has(state.slot) });
     this.remoteLastStates.set(state.slot, state);
     this.remoteLastState = state;
   }
@@ -459,7 +461,7 @@ export class VeraGameAdapter {
     remote.weapon = state.weapon;
     remote.ammo = state.ammo;
     remote.__veraNetworkState = state;
-    this.diagnostic('apply-position', { slot: state.slot, position: [state.x, state.y, state.z], weapon: state.weapon, ammo: state.ammo, remoteAlive: remote.alive, rootVisible: remote.cs2Agent && remote.cs2Agent.root && remote.cs2Agent.root.visible });
+    this.diagnostic('player-to-bot-position-applied', { slot: state.slot, botName: remote.name, position: [state.x, state.y, state.z], previous, distance, weapon: state.weapon, remoteAlive: remote.alive, rootVisible: remote.cs2Agent && remote.cs2Agent.root && remote.cs2Agent.root.visible });
 
     // The host owns remote health/alive state. Guests receive it from the host.
     if (this.role !== 'host') {
