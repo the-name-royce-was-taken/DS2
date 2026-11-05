@@ -16,6 +16,12 @@ function angleLerp(a, b, amount) {
   return a + delta * amount;
 }
 
+function isNewerSequence(next, previous) {
+  if (!Number.isFinite(previous) || previous < 0) return true;
+  const delta = (Number(next) - Number(previous)) >>> 0;
+  return delta !== 0 && delta < 0x80000000;
+}
+
 export class VeraGameAdapter {
   constructor() {
     this.game = null;
@@ -31,15 +37,17 @@ export class VeraGameAdapter {
     this.remoteBuffers = new Map();
     this.remoteLastSequence = -1;
     this.remoteLastSequences = new Map();
+    this.remoteRelaySequences = new Map();
     this.remoteLastState = null;
     this.remoteLastStates = new Map();
+    this.originalPlayerMelee = null;
     this.localSequence = 0;
     this.stateSequence = 0;
+    this.authoritativeLocalSequence = -1;
     this.tick = 0;
     this.suppressNetwork = false;
     this.originalSetup = null;
     this.originalFireBullet = null;
-    this.originalPlayerMelee = null;
     this.originalRemote = null;
     this.remoteOriginals = new Map();
     this.onLocalShot = () => {};
@@ -76,10 +84,13 @@ export class VeraGameAdapter {
     this.remotePlayers.clear();
     this.remoteBuffers.clear();
     this.remoteLastSequences.clear();
+    this.remoteRelaySequences.clear();
+    this.remoteLastState = null;
     this.remoteLastStates.clear();
     this.lastRemoteClaimAt = 0;
     this.remoteBuffer.length = 0;
     this.remoteLastSequence = -1;
+    this.authoritativeLocalSequence = -1;
     this.ensureHooks();
     this.diagnostic('activate', { role: this.role, slot: this.slot, game: !!this.game, botManager: !!(this.game && this.game.botMgr) });
     this.startFrameLoop();
@@ -119,7 +130,10 @@ export class VeraGameAdapter {
             type: 'melee',
             eventId: `${adapter.slot}:${adapter.localSequence++}`,
             tick: adapter.tick,
-            weapon: String(weapon.id || 'knife'),
+            weapon: 'knife',
+            x: finite(player && player.x),
+            y: finite(player && player.y),
+            z: finite(player && player.z),
             damage: finite(damage),
             backDamage: finite(backDamage),
             heavy: !!heavy,
@@ -261,13 +275,7 @@ export class VeraGameAdapter {
     candidate.update = function veraRemoteUpdate(delta) { adapter.updateRemoteEntity(this, delta); };
     candidate.spawn = function veraRemoteSpawn() { return adapter.spawnRemoteEntity(this); };
     candidate.__veraNetworkOriginal = original;
-    if (created && typeof original.spawn === 'function') {
-      try {
-        original.spawn.call(candidate);
-      } catch (error) {
-        this.diagnostic('remote-bot-spawn-failed', { slot: normalizedSlot, error: String(error && error.stack || error) });
-      }
-    }
+    if (created && typeof original.spawn === 'function') this.spawnRemoteEntity(candidate);
     return candidate;
   }
 
@@ -281,11 +289,15 @@ export class VeraGameAdapter {
         console.error('[VERA] Remote spawn failed:', slot, error);
       }
     }
-    // A respawn must use the engine-selected spawn, not the last packet from
-    // this or another remote player. The next network state is allowed to
-    // establish the new position even if it is far from the corpse.
+    // Never replay buffered pre-spawn coordinates. The engine has just chosen
+    // a fresh team spawn; wait for the next ordered state packet from this slot.
+    const buffer = this.remoteBuffers.get(slot);
+    if (buffer) buffer.length = 0;
+    this.remoteLastStates.delete(slot);
+    remote.__veraNetworkState = null;
     remote.__veraHasNetworkPosition = false;
     remote.__veraLastAlive = true;
+    this.diagnostic('remote-spawn-awaiting-state', { slot, position: [remote.x, remote.y, remote.z], lastSequence: this.remoteLastSequences.get(slot) });
     return remote;
   }
 
@@ -418,10 +430,17 @@ export class VeraGameAdapter {
   encodeRemoteStateFor(remote) {
     if (!remote) return null;
     const sourceState = remote.__veraNetworkState;
+    // Do not relay a placeholder or pre-spawn bot state before this slot has
+    // supplied a fresh network position. Relay sequence numbers are host-owned
+    // so the guest can reject reordered echoes without comparing two clocks.
+    if (!sourceState) return null;
+    const slot = Number(remote.__veraRemoteSlot) || 0;
+    const sequence = ((this.remoteRelaySequences.get(slot) || 0) + 1) >>> 0;
+    this.remoteRelaySequences.set(slot, sequence);
     return encodeState({
-      slot: Number(remote.__veraRemoteSlot) || 0,
-      sequence: sourceState ? sourceState.sequence : (this.stateSequence || 0),
-      tick: sourceState ? sourceState.tick : this.tick,
+      slot,
+      sequence,
+      tick: this.tick,
       x: remote.x, y: remote.y, z: remote.z,
       vx: remote.vx, vy: remote.vy, vz: remote.vz,
       yaw: remote.yaw, pitch: remote._lookPitch || 0,
@@ -452,14 +471,21 @@ export class VeraGameAdapter {
       state.slot = senderSlot;
     }
     if (state.slot === this.slot) {
-      this.diagnostic('state-mapped-to-local', { senderSlot, payloadSlot, role: this.role, localSlot: this.slot });
-      if (state && state.slot === this.slot && this.role === 'guest') this.applyAuthoritativeLocal(state);
+      this.diagnostic('state-mapped-to-local', { senderSlot, payloadSlot, role: this.role, localSlot: this.slot, sequence: state.sequence });
+      if (this.role === 'guest') {
+        if (!isNewerSequence(state.sequence, this.authoritativeLocalSequence)) {
+          this.diagnostic('authoritative-local-stale', { sequence: state.sequence, lastSequence: this.authoritativeLocalSequence });
+          return;
+        }
+        this.authoritativeLocalSequence = state.sequence;
+        this.applyAuthoritativeLocal(state);
+      }
       return;
     }
     if (!this.remotePlayers.has(state.slot)) this.remotePlayers.set(state.slot, '');
     this.claimRemoteSlots();
     const lastSequence = this.remoteLastSequences.get(state.slot);
-    if (Number.isFinite(lastSequence) && state.sequence <= lastSequence && lastSequence - state.sequence < 0x7fffffff) {
+    if (!isNewerSequence(state.sequence, lastSequence)) {
       this.diagnostic('state-stale', { senderSlot, payloadSlot, mappedSlot: state.slot, sequence: state.sequence, lastSequence });
       return;
     }
@@ -549,14 +575,9 @@ export class VeraGameAdapter {
     } else if (state.alive && !player.alive && typeof game.respawnPlayer === 'function') {
       try { game.respawnPlayer(); } catch (error) {}
     }
-    const correction = { x: state.x, y: state.y, z: state.z };
-    if (distance3(player, correction) > 2) {
-      player.x = state.x; player.y = state.y; player.z = state.z;
-    } else {
-      player.x += (state.x - player.x) * 0.18;
-      player.y += (state.y - player.y) * 0.18;
-      player.z += (state.z - player.z) * 0.18;
-    }
+    // The guest owns its movement and view direction. The host's copy of that
+    // player is an echo used for gameplay/health authority, not a movement
+    // controller; applying its coordinates causes visible rubber-banding.
     player.health = state.health;
     player.armor = state.armor;
     player.alive = state.alive;
@@ -580,15 +601,24 @@ export class VeraGameAdapter {
     const game = this.game;
     const remoteSlot = Number(event && (event.slot ?? event.fromSlot));
     const remote = this.remotes.get(remoteSlot);
-    const weapon = this.weaponDefinition(event && event.weapon || 'knife');
-    const length = Math.hypot(finite(event.dirX), finite(event.dirY), finite(event.dirZ));
+    const weapon = this.weaponDefinition('knife');
+    const length = Math.hypot(finite(event && event.dirX), finite(event && event.dirY), finite(event && event.dirZ));
     if (!game || !remote || !weapon || weapon.class !== 'knife' || !Number.isFinite(length) || length < 0.5 || length > 1.5) {
       this.diagnostic('melee-rejected', { remoteSlot, game: !!game, remoteFound: !!remote, weaponFound: !!weapon, weaponClass: weapon && weapon.class });
       return;
     }
     const direction = [finite(event.dirX) / length, finite(event.dirY) / length, finite(event.dirZ) / length];
+    // Melee range/line-of-sight is evaluated immediately from the attacker's
+    // entity coordinates. Remote avatars are rendered with interpolation delay,
+    // so use the attack-time origin carried by the event, not the delayed pose.
+    if ([event.x, event.y, event.z].every(value => Number.isFinite(Number(value)))) {
+      remote.x = Number(event.x);
+      remote.y = Number(event.y);
+      remote.z = Number(event.z);
+      remote._visY = remote.y;
+    }
     remote.__veraFiringT = 0.18;
-    this.diagnostic('melee-simulate', { remoteSlot, weapon: event.weapon, damage: event.damage, heavy: !!event.heavy, attacker: [remote.x, remote.y, remote.z], target: game.player && [game.player.x, game.player.y, game.player.z] });
+    this.diagnostic('melee-simulate', { remoteSlot, damage: event.damage, heavy: !!event.heavy, attacker: [remote.x, remote.y, remote.z], target: game.player && [game.player.x, game.player.y, game.player.z] });
     this.suppressNetwork = true;
     try {
       game.meleeAttack(remote, finite(event.damage, 40), weapon, finite(event.backDamage, 90), !!event.heavy, ...direction);
@@ -646,6 +676,7 @@ export class VeraGameAdapter {
       this.remoteBuffer.length = 0;
       this.remoteBuffers.clear();
       this.remoteLastSequences.clear();
+      this.remoteRelaySequences.clear();
       this.remoteLastStates.clear();
       this.remoteLastState = null;
     } else {
@@ -653,6 +684,7 @@ export class VeraGameAdapter {
       this.remotePlayers.delete(remoteSlot);
       this.remoteBuffers.delete(remoteSlot);
       this.remoteLastSequences.delete(remoteSlot);
+      this.remoteRelaySequences.delete(remoteSlot);
       this.remoteLastStates.delete(remoteSlot);
       if (this.remoteLastState && Number(this.remoteLastState.slot) === remoteSlot) this.remoteLastState = null;
       if (this.remote === targets[0][1]) this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
@@ -679,6 +711,7 @@ export class VeraGameAdapter {
     this.game = null;
     this.originalSetup = null;
     this.originalFireBullet = null;
+    this.originalPlayerMelee = null;
     this.remoteOriginals.clear();
   }
 }

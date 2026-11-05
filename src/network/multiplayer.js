@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera29';
-import { VeraGameAdapter } from './game-adapter.js?v=vera29';
-import { VeraRoomTransport } from './signaling.js?v=vera29';
+import { VeraPeerTransport } from './webrtc.js?v=vera30';
+import { VeraGameAdapter } from './game-adapter.js?v=vera30';
+import { VeraRoomTransport } from './signaling.js?v=vera30';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -436,7 +436,7 @@ class VeraMultiplayerSession {
     this.adapter.onLocalShot = event => {
       if (!this.transport || !this.markEvent(event.eventId)) return;
       const sent = this.transport.sendControl({ ...event, from: this.role, slot: this.slot });
-      this.diagnostic(sent ? 'fire-control-sent' : 'fire-control-send-failed', { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
+      this.diagnostic(event.type === 'melee' ? (sent ? 'melee-control-sent' : 'melee-control-send-failed') : (sent ? 'fire-control-sent' : 'fire-control-send-failed'), { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
     };
   }
 
@@ -645,7 +645,7 @@ class VeraMultiplayerSession {
         ? { ...message, slot: senderSlot }
         : message;
       if (!this.markEvent(shot.eventId)) {
-        this.diagnostic('fire-duplicate', { senderSlot, eventId: shot.eventId });
+        this.diagnostic(message.type === 'melee' ? 'melee-duplicate' : 'fire-duplicate', { senderSlot, eventId: shot.eventId });
         return;
       }
       this.diagnostic(message.type === 'melee' ? 'melee-dispatched' : 'fire-dispatched', { senderSlot, payloadSlot: message.slot, routedSlot: shot.slot, eventId: shot.eventId, weapon: shot.weapon });
