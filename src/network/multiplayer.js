@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera28';
-import { VeraGameAdapter } from './game-adapter.js?v=vera28';
-import { VeraRoomTransport } from './signaling.js?v=vera28';
+import { VeraPeerTransport } from './webrtc.js?v=vera29';
+import { VeraGameAdapter } from './game-adapter.js?v=vera29';
+import { VeraRoomTransport } from './signaling.js?v=vera29';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
@@ -639,7 +639,7 @@ class VeraMultiplayerSession {
       }
       return;
     }
-    if (message.type === 'fire') {
+    if (message.type === 'fire' || message.type === 'melee') {
       const senderSlot = Number(fromSlot);
       const shot = Number.isInteger(senderSlot) && senderSlot >= 0 && senderSlot <= 31 && senderSlot !== this.slot
         ? { ...message, slot: senderSlot }
@@ -648,8 +648,9 @@ class VeraMultiplayerSession {
         this.diagnostic('fire-duplicate', { senderSlot, eventId: shot.eventId });
         return;
       }
-      this.diagnostic('fire-dispatched', { senderSlot, payloadSlot: message.slot, routedSlot: shot.slot, eventId: shot.eventId, weapon: shot.weapon });
-      this.adapter.simulateRemoteShot(shot);
+      this.diagnostic(message.type === 'melee' ? 'melee-dispatched' : 'fire-dispatched', { senderSlot, payloadSlot: message.slot, routedSlot: shot.slot, eventId: shot.eventId, weapon: shot.weapon });
+      if (shot.type === 'melee') this.adapter.simulateRemoteMelee(shot);
+      else this.adapter.simulateRemoteShot(shot);
     }
   }
 

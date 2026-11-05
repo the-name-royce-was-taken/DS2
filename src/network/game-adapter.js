@@ -39,6 +39,7 @@ export class VeraGameAdapter {
     this.suppressNetwork = false;
     this.originalSetup = null;
     this.originalFireBullet = null;
+    this.originalPlayerMelee = null;
     this.originalRemote = null;
     this.remoteOriginals = new Map();
     this.onLocalShot = () => {};
@@ -103,6 +104,33 @@ export class VeraGameAdapter {
         return result;
       };
       manager.__veraNetworkSetup = true;
+    }
+    if (!game.__veraNetworkMeleeHook && typeof game.playerMelee === 'function') {
+      this.originalPlayerMelee = game.playerMelee;
+      const adapter = this;
+      game.playerMelee = function veraNetworkPlayerMelee(damage, weapon, backDamage, heavy) {
+        const result = adapter.originalPlayerMelee.apply(this, arguments);
+        if (adapter.active && !adapter.suppressNetwork && weapon && weapon.class === 'knife') {
+          const player = adapter.game && adapter.game.player;
+          const yaw = finite(player && player.yaw);
+          const pitch = finite(player && player.pitch);
+          const cp = Math.cos(pitch);
+          adapter.onLocalShot({
+            type: 'melee',
+            eventId: `${adapter.slot}:${adapter.localSequence++}`,
+            tick: adapter.tick,
+            weapon: String(weapon.id || 'knife'),
+            damage: finite(damage),
+            backDamage: finite(backDamage),
+            heavy: !!heavy,
+            dirX: -Math.sin(yaw) * cp,
+            dirY: Math.sin(pitch),
+            dirZ: -Math.cos(yaw) * cp
+          });
+        }
+        return result;
+      };
+      game.__veraNetworkMeleeHook = true;
     }
     if (!game.__veraNetworkFireHook && typeof game.fireBullet === 'function') {
       this.originalFireBullet = game.fireBullet;
@@ -253,10 +281,11 @@ export class VeraGameAdapter {
         console.error('[VERA] Remote spawn failed:', slot, error);
       }
     }
+    // A respawn must use the engine-selected spawn, not the last packet from
+    // this or another remote player. The next network state is allowed to
+    // establish the new position even if it is far from the corpse.
+    remote.__veraHasNetworkPosition = false;
     remote.__veraLastAlive = true;
-    const lastState = this.remoteLastStates.get(slot) || this.remoteLastState;
-    if (lastState) this.applyRemoteState(lastState, true);
-    else this.placeRemoteAtFallback(remote);
     return remote;
   }
 
@@ -547,6 +576,29 @@ export class VeraGameAdapter {
     }
   }
 
+  simulateRemoteMelee(event) {
+    const game = this.game;
+    const remoteSlot = Number(event && (event.slot ?? event.fromSlot));
+    const remote = this.remotes.get(remoteSlot);
+    const weapon = this.weaponDefinition(event && event.weapon || 'knife');
+    const length = Math.hypot(finite(event.dirX), finite(event.dirY), finite(event.dirZ));
+    if (!game || !remote || !weapon || weapon.class !== 'knife' || !Number.isFinite(length) || length < 0.5 || length > 1.5) {
+      this.diagnostic('melee-rejected', { remoteSlot, game: !!game, remoteFound: !!remote, weaponFound: !!weapon, weaponClass: weapon && weapon.class });
+      return;
+    }
+    const direction = [finite(event.dirX) / length, finite(event.dirY) / length, finite(event.dirZ) / length];
+    remote.__veraFiringT = 0.18;
+    this.diagnostic('melee-simulate', { remoteSlot, weapon: event.weapon, damage: event.damage, heavy: !!event.heavy, attacker: [remote.x, remote.y, remote.z], target: game.player && [game.player.x, game.player.y, game.player.z] });
+    this.suppressNetwork = true;
+    try {
+      game.meleeAttack(remote, finite(event.damage, 40), weapon, finite(event.backDamage, 90), !!event.heavy, ...direction);
+    } catch (error) {
+      this.diagnostic('melee-simulate-error', { remoteSlot, error: String(error && error.stack || error) });
+    } finally {
+      this.suppressNetwork = false;
+    }
+  }
+
   simulateRemoteShot(event) {
     const game = this.game;
     const remoteSlot = Number(event && (event.slot ?? event.fromSlot));
@@ -602,6 +654,7 @@ export class VeraGameAdapter {
       this.remoteBuffers.delete(remoteSlot);
       this.remoteLastSequences.delete(remoteSlot);
       this.remoteLastStates.delete(remoteSlot);
+      if (this.remoteLastState && Number(this.remoteLastState.slot) === remoteSlot) this.remoteLastState = null;
       if (this.remote === targets[0][1]) this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
     }
   }
@@ -617,6 +670,10 @@ export class VeraGameAdapter {
     if (this.game && this.game.__veraNetworkFireHook && this.originalFireBullet) {
       this.game.fireBullet = this.originalFireBullet;
       delete this.game.__veraNetworkFireHook;
+    }
+    if (this.game && this.game.__veraNetworkMeleeHook && this.originalPlayerMelee) {
+      this.game.playerMelee = this.originalPlayerMelee;
+      delete this.game.__veraNetworkMeleeHook;
     }
     this.stopFrameLoop();
     this.game = null;
