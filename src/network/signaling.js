@@ -47,9 +47,11 @@ export class VeraSignalingClient {
     this.onMessage = noop;
     this.onError = noop;
     this.diagTimes = new Map();
+    this.diagnosticsEnabled = false;
   }
 
   diagnostic(key, ...details) {
+    if (!this.diagnosticsEnabled) return;
     const now = performance.now();
     const previous = this.diagTimes.get(key) || 0;
     if (now - previous < 3000) return;
@@ -92,6 +94,8 @@ export class VeraSignalingClient {
       };
       socket.onclose = () => {
         this.socket = null;
+        this.diagnostic('websocket-closed');
+        this.diagnosticsEnabled = false;
         this.status('disconnected');
         if (!settled) {
           settled = true;
@@ -116,6 +120,7 @@ export class VeraSignalingClient {
 
   close() {
     this.closed = true;
+    this.diagnosticsEnabled = false;
     try { this.socket && this.socket.close(); } catch (error) {}
     this.socket = null;
   }
