@@ -1,6 +1,6 @@
-import { VeraPeerTransport } from './webrtc.js?v=vera23';
-import { VeraGameAdapter } from './game-adapter.js?v=vera23';
-import { VeraRoomTransport } from './signaling.js?v=vera23';
+import { VeraPeerTransport } from './webrtc.js?v=vera24';
+import { VeraGameAdapter } from './game-adapter.js?v=vera24';
+import { VeraRoomTransport } from './signaling.js?v=vera24';
 
 const STATUS_TEXT = Object.freeze({
   offline: 'OFFLINE',
