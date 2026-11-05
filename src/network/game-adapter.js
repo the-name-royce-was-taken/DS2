@@ -521,13 +521,14 @@ export class VeraGameAdapter {
     remote.weapon = state.weapon;
     remote.ammo = state.ammo;
     remote.__veraNetworkState = state;
-    this.diagnostic('player-to-bot-position-applied', { slot: state.slot, botName: remote.name, position: [state.x, state.y, state.z], previous, distance, weapon: state.weapon, remoteAlive: remote.alive, rootVisible: remote.cs2Agent && remote.cs2Agent.root && remote.cs2Agent.root.visible });
+    this.diagnostic('player-to-bot-position-applied', { slot: state.slot, botName: remote.name, position: [state.x, state.y, state.z], previous, distance, weapon: state.weapon, incomingAlive: state.alive, incomingHealth: state.health, aliveBefore: remote.alive, deathAnimT: remote.deathAnimT, rootVisible: remote.cs2Agent && remote.cs2Agent.root && remote.cs2Agent.root.visible });
 
     // The host owns remote health/alive state. Guests receive it from the host.
     if (this.role !== 'host') {
       const wasAlive = remote.alive;
       remote.health = state.health;
       remote.alive = state.alive;
+      this.diagnostic('remote-life-state-applied', { slot: state.slot, incomingAlive: state.alive, incomingHealth: state.health, aliveBefore: wasAlive, aliveAfter: remote.alive, deathAnimT: remote.deathAnimT, rootVisible: remote.cs2Agent && remote.cs2Agent.root && remote.cs2Agent.root.visible });
       if (wasAlive && !state.alive && remote.cs2Agent && remote.cs2Agent.die) {
         try { remote.cs2Agent.die('chest', false); } catch (error) {}
       }
