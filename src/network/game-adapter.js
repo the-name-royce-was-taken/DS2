@@ -37,6 +37,7 @@ export class VeraGameAdapter {
     this.remoteBuffers = new Map();
     this.remoteLastSequence = -1;
     this.remoteLastSequences = new Map();
+    this.remoteRelaySequences = new Map();
     this.remoteLastState = null;
     this.remoteLastStates = new Map();
     this.localSequence = 0;
@@ -82,6 +83,7 @@ export class VeraGameAdapter {
     this.remotePlayers.clear();
     this.remoteBuffers.clear();
     this.remoteLastSequences.clear();
+    this.remoteRelaySequences.clear();
     this.remoteLastStates.clear();
     this.lastRemoteClaimAt = 0;
     this.remoteBuffer.length = 0;
@@ -423,10 +425,17 @@ export class VeraGameAdapter {
   encodeRemoteStateFor(remote) {
     if (!remote) return null;
     const sourceState = remote.__veraNetworkState;
+    // Do not relay a placeholder or pre-spawn bot state before this slot has
+    // supplied a fresh network position. Relay sequence numbers are host-owned
+    // so the guest can reject reordered echoes without comparing two clocks.
+    if (!sourceState) return null;
+    const slot = Number(remote.__veraRemoteSlot) || 0;
+    const sequence = ((this.remoteRelaySequences.get(slot) || 0) + 1) >>> 0;
+    this.remoteRelaySequences.set(slot, sequence);
     return encodeState({
-      slot: Number(remote.__veraRemoteSlot) || 0,
-      sequence: sourceState ? sourceState.sequence : (this.stateSequence || 0),
-      tick: sourceState ? sourceState.tick : this.tick,
+      slot,
+      sequence,
+      tick: this.tick,
       x: remote.x, y: remote.y, z: remote.z,
       vx: remote.vx, vy: remote.vy, vz: remote.vz,
       yaw: remote.yaw, pitch: remote._lookPitch || 0,
@@ -653,6 +662,7 @@ export class VeraGameAdapter {
       this.remoteBuffer.length = 0;
       this.remoteBuffers.clear();
       this.remoteLastSequences.clear();
+      this.remoteRelaySequences.clear();
       this.remoteLastStates.clear();
       this.remoteLastState = null;
     } else {
@@ -660,6 +670,7 @@ export class VeraGameAdapter {
       this.remotePlayers.delete(remoteSlot);
       this.remoteBuffers.delete(remoteSlot);
       this.remoteLastSequences.delete(remoteSlot);
+      this.remoteRelaySequences.delete(remoteSlot);
       this.remoteLastStates.delete(remoteSlot);
       if (this.remote === targets[0][1]) this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
     }
