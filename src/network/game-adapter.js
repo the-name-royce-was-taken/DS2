@@ -538,9 +538,22 @@ export class VeraGameAdapter {
     const previous = { x: remote.x, y: remote.y, z: remote.z };
     const distance = distance3(previous, state);
     if (!immediate && remote.__veraHasNetworkPosition && distance > 12) {
-      this.diagnostic('apply-distance-rejected', { slot: state.slot, distance, previous, incoming: [state.x, state.y, state.z] });
-      return;
+      const pending = remote.__veraPendingNetworkJump;
+      const confirmsJump = pending
+        && isNewerSequence(state.sequence, pending.sequence)
+        && distance3(pending, state) <= 3;
+      if (!confirmsJump) {
+        if (!pending || isNewerSequence(state.sequence, pending.sequence)) {
+          remote.__veraPendingNetworkJump = {
+            x: state.x, y: state.y, z: state.z, sequence: state.sequence
+          };
+        }
+        this.diagnostic('apply-distance-rejected', { slot: state.slot, distance, previous, incoming: [state.x, state.y, state.z], pendingJump: true });
+        return;
+      }
+      this.diagnostic('apply-distance-jump-confirmed', { slot: state.slot, distance, previous, incoming: [state.x, state.y, state.z], confirmingSequence: state.sequence });
     }
+    remote.__veraPendingNetworkJump = null;
     remote.__veraHasNetworkPosition = true;
     remote.x = state.x; remote.y = state.y; remote.z = state.z;
     remote._visY = state.y;
