@@ -670,7 +670,7 @@ class VeraMultiplayerSession {
         const local = this.adapter.encodeLocalState();
         if (local) {
           const sent = this.transport.sendState(local);
-          this.diagnostic(sent ? 'local-state-packet-sent' : 'local-state-send-failed', { role: this.role, slot: this.slot, tick: this.adapter.tick, sequence: this.adapter.stateSequence, bytes: local.byteLength, position: [this.adapter.game.player.x, this.adapter.game.player.y, this.adapter.game.player.z] });
+          this.diagnostic(sent ? 'local-state-packet-sent' : 'local-state-send-failed', { role: this.role, slot: this.slot, tick: this.adapter.tick, sequence: this.adapter.stateSequence, bytes: local.byteLength, position: [this.adapter.game.player.x, this.adapter.game.player.y, this.adapter.game.player.z], alive: this.adapter.game.player.alive, health: this.adapter.game.player.health });
         } else {
           this.diagnostic('local-state-unavailable', { role: this.role, slot: this.slot, game: !!this.adapter.game, player: !!(this.adapter.game && this.adapter.game.player) });
         }
