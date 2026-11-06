@@ -3339,21 +3339,36 @@ window.__cs2UiScale = function () {
 <style>
   #vera-logs {
     position: fixed;
-    top: 14px;
-    left: 50%;
-    transform: translateX(-50%);
+    top: 8px;
+    right: 8px;
     z-index: 999999;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     font: 12px monospace;
     color: #eee;
   }
 
   #vera-logs-toggle {
-    background: #222;
-    color: white;
-    border: 1px solid #666;
-    border-radius: 7px;
-    padding: 9px 14px;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(20, 20, 20, 0.55);
+    color: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 4px;
     cursor: pointer;
+    font: 14px/1 monospace;
+    opacity: 0.55;
+    transition: opacity 0.15s, background 0.15s;
+  }
+
+  #vera-logs-toggle:hover,
+  #vera-logs-toggle:focus-visible {
+    opacity: 1;
+    background: #222;
   }
 
   #vera-logs-panel {
@@ -3411,7 +3426,7 @@ window.__cs2UiScale = function () {
       <button id="vera-logs-clear">Clear</button>
     </div>
   </div>
-  <button id="vera-logs-toggle">Logs ▲</button>
+  <button id="vera-logs-toggle" aria-label="Toggle logs" title="Toggle logs">›</button>
 </div>
 
 <script>
@@ -3478,9 +3493,7 @@ window.__cs2UiScale = function () {
 
   toggle.addEventListener('click', () => {
     panel.classList.toggle('open');
-    toggle.textContent = panel.classList.contains('open')
-      ? 'Logs ▼'
-      : 'Logs ▲';
+    toggle.textContent = panel.classList.contains('open') ? '‹' : '›';
   });
 
   document.getElementById('vera-logs-copy').addEventListener('click', async () => {
