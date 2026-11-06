@@ -45325,39 +45325,46 @@ var Nv = class e {
     }
     let s = this["_specEnt"]() || (t["player"]["alive"] ? t["player"] : null);
     let c = t["_lookTarget"];
+    let targetText = null;
+    let targetColor = null;
+    let targetVisible = !0x1;
     if (c && c["alive"] && s) {
       let e = c["team"] === s["team"];
       let t = V[c["weapon"]];
-      ((this["targetIdEl"]["textContent"] = e
-        ? c["name"] + "  \xB7  " + (t ? t["name"] : "")
-        : c["name"]),
-        (this["targetIdEl"]["style"]["color"] = e
-          ? c["team"] === "CT"
-            ? __p_32Ki_MAIN_STR(0x185c7, 0xb)
-            : __p_32Ki_MAIN_STR(0x185d9, 0xa)
-          : __p_32Ki_MAIN_STR(0x19dcf, 0x9)),
-        (this["targetIdEl"]["style"]["opacity"] = 0x1));
-    } else {
-      if (t["_lookDrop"] && s) {
-        let e = t["_lookDrop"];
-        let n = V[e["id"]];
-        (e["skin"]
-          ? ((this["targetIdEl"]["textContent"] =
-              (e["item"] && e["item"]["st"]
-                ? __p_32Ki_MAIN_STR(0x19ddd, 0xf)
-                : "") + e["skin"]["name"]),
-            (this["targetIdEl"]["style"]["color"] =
-              (as[e["skin"]["rarity"]] || {})["color"] ||
-              __p_32Ki_MAIN_STR(0x19def, 0x9)))
-          : ((this["targetIdEl"]["textContent"] = n ? n["name"] : e["id"]),
-            (this["targetIdEl"]["style"]["color"] = __p_32Ki_MAIN_STR(
-              0x19def,
-              0x9,
-            ))),
-          (this["targetIdEl"]["style"]["opacity"] = 0x1));
-      } else {
-        this["targetIdEl"]["style"]["opacity"] = 0x0;
+      targetText = e ? c["name"] + "  \xB7  " + (t ? t["name"] : "") : c["name"];
+      targetColor = e
+        ? c["team"] === "CT"
+          ? __p_32Ki_MAIN_STR(0x185c7, 0xb)
+          : __p_32Ki_MAIN_STR(0x185d9, 0xa)
+        : __p_32Ki_MAIN_STR(0x19dcf, 0x9);
+      targetVisible = !0x0;
+    } else if (t["_lookDrop"] && s) {
+      let e = t["_lookDrop"];
+      let n = V[e["id"]];
+      targetText = e["skin"]
+        ? (e["item"] && e["item"]["st"]
+            ? __p_32Ki_MAIN_STR(0x19ddd, 0xf)
+            : "") + e["skin"]["name"]
+        : n ? n["name"] : e["id"];
+      targetColor = e["skin"]
+        ? (as[e["skin"]["rarity"]] || {})["color"] ||
+          __p_32Ki_MAIN_STR(0x19def, 0x9)
+        : __p_32Ki_MAIN_STR(0x19def, 0x9);
+      targetVisible = !0x0;
+    }
+    if (targetVisible) {
+      if (this["_targetIdText"] !== targetText) {
+        this["_targetIdText"] = targetText;
+        this["targetIdEl"]["textContent"] = targetText;
       }
+      if (this["_targetIdColor"] !== targetColor) {
+        this["_targetIdColor"] = targetColor;
+        this["targetIdEl"]["style"]["color"] = targetColor;
+      }
+    }
+    if (this["_targetIdVisible"] !== targetVisible) {
+      this["_targetIdVisible"] = targetVisible;
+      this["targetIdEl"]["style"]["opacity"] = targetVisible ? 0x1 : 0x0;
     }
     let l = 0x0;
     if (t["grenadeMgr"]) {
@@ -45370,7 +45377,8 @@ var Nv = class e {
           (l = Math["max"](l, Math["min"](0x1, (i["r"] + 0.6 - t) / 1.6)));
       }
     }
-    ((this["smokeOv"]["style"]["opacity"] = (l * 0.98)["toFixed"](0x2)),
+    ((this["smokeOv"]["style"]["opacity"] !== (l * 0.98)["toFixed"](0x2) &&
+      (this["smokeOv"]["style"]["opacity"] = (l * 0.98)["toFixed"](0x2))),
       this["setSpectate"](
         t["spectating"] && !t["player"]["alive"]
           ? t["spectating"]["name"] +
@@ -53061,9 +53069,12 @@ window["game"] = new (class {
                     : e(t["material"])));
               });
             }
-            let e = Math["max"](0x0, 0x1 - (n - 0xf) / 0.8);
-            for (let n of t["fadeMats"]["values"]()) {
-              n["opacity"] = e;
+            if (n - (t["_fadeUpdateAt"] ?? -0x1) >= 1 / 0x1e) {
+              t["_fadeUpdateAt"] = n;
+              let e = Math["max"](0x0, 0x1 - (n - 0xf) / 0.8);
+              for (let n of t["fadeMats"]["values"]()) {
+                n["opacity"] = e;
+              }
             }
           }
         }
@@ -57194,7 +57205,12 @@ window["game"] = new (class {
         this["_pumpWarmQueue"](),
         this["modeCtl"] && this["modeCtl"]["update"](t),
         this["grenadeMgr"]["update"](t),
-        this["effects"]["update"](t),
+        (this["quality"] === "low"
+          ? ((this["_lowFxT"] = (this["_lowFxT"] || 0x0) + t),
+            this["_lowFxT"] >= 1 / 0x1e &&
+              (this["effects"]["update"](this["_lowFxT"]),
+              (this["_lowFxT"] = 0x0)))
+          : this["effects"]["update"](t)),
         this["mapEnts"] && this["mapEnts"]["update"](t),
         this["modeCtl"] ||
           (this["roundActive"]
