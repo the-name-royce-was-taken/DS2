@@ -225,13 +225,27 @@ export class VeraGameAdapter {
     const normalizedSlot = Number(slot);
     if (this.remotes.has(normalizedSlot)) {
       const existing = this.remotes.get(normalizedSlot);
-      if (remoteTeam === 'CT' || remoteTeam === 'T') {
-        existing.__veraTeam = remoteTeam;
-        existing.team = remoteTeam;
-        this.remoteTeam = remoteTeam;
+      // startGame()/botMgr.setup() can replace the bot array after the roster
+      // has already been received. Never keep controlling an entity that is
+      // no longer part of the active match.
+      if (Array.isArray(manager.bots) && manager.bots.includes(existing)) {
+        if (remoteTeam === 'CT' || remoteTeam === 'T') {
+          existing.__veraTeam = remoteTeam;
+          existing.team = remoteTeam;
+          this.remoteTeam = remoteTeam;
+        }
+        existing.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
+        return existing;
       }
-      existing.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
-      return existing;
+      this.remotes.delete(normalizedSlot);
+      this.remoteOriginals.delete(normalizedSlot);
+      if (this.remote === existing) {
+        this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
+      }
+      this.diagnostic('remote-slot-rebound', {
+        remoteSlot: normalizedSlot,
+        activeBotCount: Array.isArray(manager.bots) ? manager.bots.length : 0
+      });
     }
     let candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
     let created = false;
