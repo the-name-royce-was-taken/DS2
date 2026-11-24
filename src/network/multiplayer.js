@@ -462,8 +462,14 @@ class VeraMultiplayerSession {
       if (!Number.isInteger(slot) || slot < 0 || slot > 31) continue;
       const existing = this.players.get(slot);
       const name = typeof entry.name === 'string' ? entry.name : (existing && existing.name) || '';
-      this.players.set(slot, { slot, role: entry.role === 'host' ? 'host' : 'guest', name });
-      if (team(entry.team)) this.playerTeams.set(slot, team(entry.team));
+      const assignedTeam = team(entry.team);
+      this.players.set(slot, {
+        slot,
+        role: entry.role === 'host' ? 'host' : 'guest',
+        name,
+        ...(assignedTeam ? { team: assignedTeam } : {})
+      });
+      if (assignedTeam) this.playerTeams.set(slot, assignedTeam);
     }
     this.syncRemoteRoster();
     this.diagnostic('multiplayer-roster-updated', { role: this.role, localSlot: this.slot, players: [...this.players.values()], teams: [...this.playerTeams.entries()] });
@@ -576,13 +582,21 @@ class VeraMultiplayerSession {
 
   async beginHostMatch() {
     if (!this.transportConnected || !this.localTeam || this.role !== 'host') return;
-    const hasGuest = [...this.players.keys()].some(slot => slot !== this.slot && this.playerTeams.has(slot));
-    if (!hasGuest) return;
+    const roster = [...this.players.values()];
+    const hasGuest = roster.some(player => player.slot !== this.slot);
+    // Do not start as soon as the first guest chooses a side. In rooms with
+    // 3+ players that races the remaining team-select messages and starts
+    // everyone else with a guessed/default team.
+    if (!hasGuest || roster.some(player => !this.playerTeams.has(player.slot))) return;
     const selected = this.adapter.selectedMatch();
     this.matchConfig = { map: selected.map, mode: 'dm' };
-    const players = [...this.players.values()]
-      .filter(player => this.playerTeams.has(player.slot))
-      .map(player => ({ slot: player.slot, role: player.role, team: this.playerTeams.get(player.slot), name: player.name || '' }));
+    const players = roster
+      .map(player => ({
+        slot: player.slot,
+        role: player.role,
+        team: this.playerTeams.get(player.slot),
+        name: player.name || ''
+      }));
     this.adapter.setRemotePlayers(players);
     const message = {
       type: 'match-start',
@@ -636,8 +650,14 @@ class VeraMultiplayerSession {
     }
     if (message.type === 'team-select') {
       const chosen = team(message.team);
-      const slot = Number.isInteger(Number(message.slot)) ? Number(message.slot) : Number(fromSlot);
-      if (!chosen || !Number.isInteger(slot) || slot < 0 || slot > 31) return;
+      // The signaling server's sender slot is authoritative. Do not let a
+      // stale client payload slot assign a guest's team to another player.
+      const senderSlot = Number(fromSlot);
+      const payloadSlot = Number(message.slot);
+      const slot = Number.isInteger(senderSlot) && senderSlot >= 0 && senderSlot <= 31
+        ? senderSlot
+        : payloadSlot;
+      if (!chosen || !Number.isInteger(slot) || slot < 0 || slot > 31 || slot === this.slot) return;
       this.playerTeams.set(slot, chosen);
       const existing = this.players.get(slot) || { slot, role: slot === 0 ? 'host' : 'guest' };
       this.players.set(slot, { ...existing, team: chosen });
