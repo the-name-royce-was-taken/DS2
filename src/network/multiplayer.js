@@ -693,6 +693,9 @@ class VeraMultiplayerSession {
       if (game && game.state === 'playing') {
         if (Number.isFinite(message.roundTimeLeft)) game.roundTimeLeft = Math.max(0, message.roundTimeLeft);
         if (typeof message.roundActive === 'boolean') game.roundActive = message.roundActive;
+        if (Object.prototype.hasOwnProperty.call(message, 'bombCarrierSlot')) {
+          this.adapter.applyRemoteBombCarrier(message.bombCarrierSlot);
+        }
         if (game.hud && game.hud.update) { try { game.hud.update(0); } catch (error) {} }
       }
       return;
@@ -757,7 +760,21 @@ class VeraMultiplayerSession {
       if (this.role === 'host' && now - this.lastMatchAt >= 200) {
         const game = this.adapter.game;
         if (game) {
-          const sent = this.transport.sendControl({ type: 'match-state', roundActive: !!game.roundActive, roundTimeLeft: finite(game.roundTimeLeft), mode: game.mode, phase: game.state });
+          const modeCtl = game.modeCtl;
+          const carrier = modeCtl && modeCtl.carrier;
+          const bombCarrierSlot = carrier
+            ? (carrier === game.player ? this.slot : Number(carrier.__veraRemoteSlot))
+            : null;
+          const sent = this.transport.sendControl({
+            type: 'match-state',
+            roundActive: !!game.roundActive,
+            roundTimeLeft: finite(game.roundTimeLeft),
+            mode: game.mode,
+            phase: game.state,
+            bombCarrierSlot: Number.isInteger(bombCarrierSlot) && bombCarrierSlot >= 0 && bombCarrierSlot <= 31
+              ? bombCarrierSlot
+              : null
+          });
           this.diagnostic(sent ? 'match-update-sent' : 'match-update-send-failed', { role: this.role, phase: game.state, roundActive: !!game.roundActive });
         }
         this.lastMatchAt = now;
