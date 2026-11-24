@@ -266,7 +266,7 @@ export class VeraGameAdapter {
       // has already been received. Never keep controlling an entity that is
       // no longer part of the active match.
       if (Array.isArray(manager.bots) && manager.bots.includes(existing)) {
-        if (existing.team !== botTeam) {
+        if (existing.team !== botTeam || existing.__veraModelTeam !== botTeam) {
           // The engine builds the character model when the bot is constructed.
           // Updating only .team changes gameplay allegiance, not the already
           // loaded CT/T character. Retire this entity and create a fresh bot
@@ -307,7 +307,7 @@ export class VeraGameAdapter {
     const Bot = this.botConstructor || (template && template.constructor);
     const difficulty = template ? template.difficulty : this.botDifficulty;
 
-    if (candidate && candidate.team !== botTeam) {
+    if (candidate && (candidate.team !== botTeam || candidate.__veraModelTeam !== botTeam)) {
       // A spare bot may have been constructed for the local player's side.
       // Do not simply overwrite its team: that leaves the old faction model
       // attached. Leave it unassigned for removeUnassignedBots() and replace it.
@@ -358,6 +358,7 @@ export class VeraGameAdapter {
     this.remoteTeam = botTeam;
     candidate.__veraRemoteSlot = normalizedSlot;
     candidate.__veraTeam = botTeam;
+    candidate.__veraModelTeam = botTeam;
     candidate.team = botTeam;
     candidate.__veraRemote = true;
     // Keep the engine's bot/entity damage path for this slot. Marking it as
