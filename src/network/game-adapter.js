@@ -213,7 +213,39 @@ export class VeraGameAdapter {
 
   claimRemoteSlots() {
     for (const [slot, remoteTeam] of this.remotePlayers) this.claimRemoteSlot(slot, remoteTeam);
+    this.removeUnassignedBots();
     return this.remote || null;
+  }
+
+  removeUnassignedBots() {
+    const manager = this.game && this.game.botMgr;
+    // Roster updates also happen in the lobby. Only prune after the engine
+    // has actually entered a live match, never while its menu/setup is active.
+    if (!this.game || this.game.state !== 'playing' || !manager || !Array.isArray(manager.bots)) return;
+    const assigned = new Set(this.remotes.values());
+    const kept = [];
+    for (const bot of manager.bots) {
+      if (assigned.has(bot)) {
+        kept.push(bot);
+        continue;
+      }
+      // In a network match every AI bot slot must belong to a connected
+      // player. Leaving spare bots in the manager makes them continue to
+      // think, shoot and spawn as AI alongside the real remote players.
+      try {
+        if (bot.cs2Agent && bot.cs2Agent.root && this.game.scene) {
+          this.game.scene.remove(bot.cs2Agent.root);
+        }
+      } catch (error) {}
+      try {
+        if (bot.shadow && this.game.scene) this.game.scene.remove(bot.shadow);
+      } catch (error) {}
+      this.diagnostic('unassigned-ai-bot-removed', {
+        name: bot.name,
+        team: bot.team
+      });
+    }
+    manager.bots.splice(0, manager.bots.length, ...kept);
   }
 
   claimRemoteSlot(slot = 1, remoteTeam = '') {
@@ -225,13 +257,27 @@ export class VeraGameAdapter {
     const normalizedSlot = Number(slot);
     if (this.remotes.has(normalizedSlot)) {
       const existing = this.remotes.get(normalizedSlot);
-      if (remoteTeam === 'CT' || remoteTeam === 'T') {
-        existing.__veraTeam = remoteTeam;
-        existing.team = remoteTeam;
-        this.remoteTeam = remoteTeam;
+      // startGame()/botMgr.setup() can replace the bot array after the roster
+      // has already been received. Never keep controlling an entity that is
+      // no longer part of the active match.
+      if (Array.isArray(manager.bots) && manager.bots.includes(existing)) {
+        if (remoteTeam === 'CT' || remoteTeam === 'T') {
+          existing.__veraTeam = remoteTeam;
+          existing.team = remoteTeam;
+          this.remoteTeam = remoteTeam;
+        }
+        existing.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
+        return existing;
       }
-      existing.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
-      return existing;
+      this.remotes.delete(normalizedSlot);
+      this.remoteOriginals.delete(normalizedSlot);
+      if (this.remote === existing) {
+        this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
+      }
+      this.diagnostic('remote-slot-rebound', {
+        remoteSlot: normalizedSlot,
+        activeBotCount: Array.isArray(manager.bots) ? manager.bots.length : 0
+      });
     }
     let candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
     let created = false;
