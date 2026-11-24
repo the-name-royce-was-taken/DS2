@@ -688,10 +688,6 @@ export class VeraGameAdapter {
     if (nextSlot != null && !actor) return false;
     const previous = modeCtl.carrier;
     if (previous && previous !== actor && previous !== game.player) previous.hasBomb = false;
-    if (previous && previous !== actor && previous !== game.player &&
-        typeof previous._syncHeldGear === 'function') {
-      try { previous._syncHeldGear(game); } catch (error) {}
-    }
     if (previous && previous !== actor && previous === game.player) {
       const weapons = game.weapons;
       if (weapons && weapons.slots && weapons.slots[5] === 'c4') {
@@ -703,6 +699,10 @@ export class VeraGameAdapter {
       }
     }
     modeCtl.carrier = actor;
+    if (previous && previous !== actor && previous !== game.player &&
+        typeof previous._syncHeldGear === 'function') {
+      try { previous._syncHeldGear(game); } catch (error) {}
+    }
     if (actor) {
       if (actor === game.player) {
         const weapons = game.weapons;
