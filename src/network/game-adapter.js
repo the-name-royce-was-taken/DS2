@@ -409,6 +409,18 @@ export class VeraGameAdapter {
       for (const slot of this.remotes.keys()) {
         const state = this.sampleRemote(now, slot);
         if (state) this.applyRemoteState(state, false);
+
+        // Some engine update paths can leave a living remote player's model
+        // hidden after a death/respawn transition. The adapter frame loop runs
+        // independently of bot AI updates, so repair visibility here as well.
+        const remote = this.remotes.get(slot);
+        const root = remote && remote.cs2Agent && remote.cs2Agent.root;
+        if (remote && remote.alive && root && !root.visible) {
+          root.visible = true;
+          this.diagnostic('remote-root-visibility-restored', {
+            slot, alive: remote.alive, position: [remote.x, remote.y, remote.z]
+          });
+        }
       }
       this.lastFrameAt = now;
     };
