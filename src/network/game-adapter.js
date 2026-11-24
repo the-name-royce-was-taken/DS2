@@ -219,7 +219,9 @@ export class VeraGameAdapter {
 
   removeUnassignedBots() {
     const manager = this.game && this.game.botMgr;
-    if (!manager || !Array.isArray(manager.bots)) return;
+    // Roster updates also happen in the lobby. Only prune after the engine
+    // has actually entered a live match, never while its menu/setup is active.
+    if (!this.game || this.game.state !== 'playing' || !manager || !Array.isArray(manager.bots)) return;
     const assigned = new Set(this.remotes.values());
     const kept = [];
     for (const bot of manager.bots) {
