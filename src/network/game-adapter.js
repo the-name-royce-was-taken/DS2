@@ -675,6 +675,56 @@ export class VeraGameAdapter {
     };
   }
 
+  applyRemoteBombCarrier(slot) {
+    const game = this.game;
+    const modeCtl = game && game.modeCtl;
+    if (!game || !modeCtl || modeCtl.planted) return false;
+    const nextSlot = slot == null ? null : Number(slot);
+    const actor = nextSlot == null
+      ? null
+      : nextSlot === this.slot
+        ? game.player
+        : this.remotes.get(nextSlot);
+    if (nextSlot != null && !actor) return false;
+    const previous = modeCtl.carrier;
+    if (previous && previous !== actor && previous !== game.player) previous.hasBomb = false;
+    if (previous && previous !== actor && previous === game.player) {
+      const weapons = game.weapons;
+      if (weapons && weapons.slots && weapons.slots[5] === 'c4') {
+        weapons.slots[5] = null;
+        if (weapons.states) delete weapons.states.c4;
+        if (weapons.current === 'c4' && typeof weapons.equip === 'function') {
+          weapons.equip(weapons.slots[1] || weapons.slots[2] || 'knife');
+        }
+      }
+    }
+    modeCtl.carrier = actor;
+    if (actor) {
+      if (actor === game.player) {
+        const weapons = game.weapons;
+        if (weapons && weapons.slots) {
+          weapons.slots[5] = 'c4';
+          if (weapons.states) weapons.states.c4 = { ammo: 1, reserve: 0 };
+        }
+        if (game.hud && game.hud.updateWeapon) game.hud.updateWeapon();
+      } else {
+        actor.hasBomb = true;
+        if (typeof actor._syncHeldGear === 'function') {
+          try { actor._syncHeldGear(game); } catch (error) {}
+        } else if (actor.cs2Agent && actor.cs2Agent.setBomb) {
+          try { actor.cs2Agent.setBomb(true); } catch (error) {}
+        }
+      }
+    }
+    this.diagnostic('bomb-carrier-synchronized', {
+      carrierSlot: nextSlot,
+      localSlot: this.slot,
+      carrierIsLocal: actor === game.player,
+      carrierName: actor && actor.name
+    });
+    return true;
+  }
+
   applyRemoteBombPlanted(event) {
     const game = this.game;
     const modeCtl = game && game.modeCtl;
