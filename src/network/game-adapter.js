@@ -102,6 +102,45 @@ export class VeraGameAdapter {
     const game = this.game || window.game;
     if (!game) return false;
     this.game = game;
+    const modeCtl = game.modeCtl;
+    if (modeCtl && modeCtl !== this.modeController && !modeCtl.__veraNetworkHooks) {
+      this.modeController = modeCtl;
+      this.originalModePlant = modeCtl.plant;
+      this.originalModeRoundEnd = modeCtl.roundEnd;
+      const adapter = this;
+      if (typeof this.originalModePlant === 'function') {
+        modeCtl.plant = function veraNetworkPlant(actor, site) {
+          const result = adapter.originalModePlant.apply(this, arguments);
+          if (adapter.active && !adapter.suppressNetwork && this.planted) {
+            adapter.onLocalBomb({
+              type: 'bomb-planted',
+              eventId: `${adapter.slot}:bomb:${adapter.localSequence++}`,
+              x: finite(this.planted.x),
+              y: finite(this.planted.y),
+              z: finite(this.planted.z),
+              site: String(this.planted.site || (site && site.name) || '?'),
+              actorSlot: actor === adapter.game.player ? adapter.slot : finite(actor && actor.__veraRemoteSlot, adapter.slot)
+            });
+          }
+          return result;
+        };
+      }
+      if (typeof this.originalModeRoundEnd === 'function') {
+        modeCtl.roundEnd = function veraNetworkRoundEnd(winner, reason) {
+          const result = adapter.originalModeRoundEnd.apply(this, arguments);
+          if (adapter.active && !adapter.suppressNetwork) {
+            adapter.onLocalBomb({
+              type: 'bomb-round-end',
+              eventId: `${adapter.slot}:round:${adapter.localSequence++}`,
+              winner: winner === 'CT' ? 'CT' : 'T',
+              reason: String(reason || '')
+            });
+          }
+          return result;
+        };
+      }
+      modeCtl.__veraNetworkHooks = true;
+    }
     const manager = game.botMgr;
     if (manager && !manager.__veraNetworkSetup) {
       this.originalSetup = manager.setup;
@@ -636,6 +675,105 @@ export class VeraGameAdapter {
     };
   }
 
+  applyRemoteBombCarrier(slot) {
+    const game = this.game;
+    const modeCtl = game && game.modeCtl;
+    if (!game || !modeCtl || modeCtl.planted) return false;
+    const nextSlot = slot == null ? null : Number(slot);
+    const actor = nextSlot == null
+      ? null
+      : nextSlot === this.slot
+        ? game.player
+        : this.remotes.get(nextSlot);
+    if (nextSlot != null && !actor) return false;
+    const previous = modeCtl.carrier;
+    if (previous && previous !== actor && previous !== game.player) previous.hasBomb = false;
+    if (previous && previous !== actor && previous === game.player) {
+      const weapons = game.weapons;
+      if (weapons && weapons.slots && weapons.slots[5] === 'c4') {
+        weapons.slots[5] = null;
+        if (weapons.states) delete weapons.states.c4;
+        if (weapons.current === 'c4' && typeof weapons.equip === 'function') {
+          weapons.equip(weapons.slots[1] || weapons.slots[2] || 'knife');
+        }
+      }
+    }
+    modeCtl.carrier = actor;
+    if (previous && previous !== actor && previous !== game.player &&
+        typeof previous._syncHeldGear === 'function') {
+      try { previous._syncHeldGear(game); } catch (error) {}
+    }
+    if (actor) {
+      if (actor === game.player) {
+        const weapons = game.weapons;
+        if (weapons && weapons.slots) {
+          weapons.slots[5] = 'c4';
+          if (weapons.states) weapons.states.c4 = { ammo: 1, reserve: 0 };
+        }
+        if (game.hud && game.hud.updateWeapon) game.hud.updateWeapon();
+      } else {
+        actor.hasBomb = true;
+        if (typeof actor._syncHeldGear === 'function') {
+          try { actor._syncHeldGear(game); } catch (error) {}
+        } else if (actor.cs2Agent && actor.cs2Agent.setBomb) {
+          try { actor.cs2Agent.setBomb(true); } catch (error) {}
+        }
+      }
+    }
+    this.diagnostic('bomb-carrier-synchronized', {
+      carrierSlot: nextSlot,
+      localSlot: this.slot,
+      carrierIsLocal: actor === game.player,
+      carrierName: actor && actor.name
+    });
+    return true;
+  }
+
+  applyRemoteBombPlanted(event) {
+    const game = this.game;
+    const modeCtl = game && game.modeCtl;
+    const slot = Number(event && event.slot);
+    const remote = this.remotes.get(slot);
+    if (!game || !modeCtl || typeof modeCtl.plant !== 'function' || !remote) return false;
+    const x = finite(event.x, NaN), y = finite(event.y, NaN), z = finite(event.z, NaN);
+    if (![x, y, z].every(Number.isFinite)) return false;
+    if (modeCtl.planted &&
+        Math.hypot(modeCtl.planted.x - x, modeCtl.planted.z - z) < 0.5) return true;
+    const siteName = String(event.site || '');
+    const site = game.map && Array.isArray(game.map.bombsites)
+      ? game.map.bombsites.find(item => item && item.name === siteName) || null
+      : null;
+    remote.x = x; remote.y = y; remote.z = z; remote._visY = y;
+    this.suppressNetwork = true;
+    try {
+      modeCtl.plant(remote, site);
+      this.diagnostic('remote-bomb-planted-applied', { slot, position: [x, y, z], site: siteName, planted: !!modeCtl.planted });
+      return !!modeCtl.planted;
+    } catch (error) {
+      this.diagnostic('remote-bomb-plant-error', { slot, error: String(error && error.stack || error) });
+      return false;
+    } finally {
+      this.suppressNetwork = false;
+    }
+  }
+
+  applyRemoteBombRoundEnd(event) {
+    const modeCtl = this.game && this.game.modeCtl;
+    if (!modeCtl || typeof modeCtl.roundEnd !== 'function') return false;
+    if (modeCtl.state === 'end' || modeCtl.state === 'match_end') return true;
+    this.suppressNetwork = true;
+    try {
+      modeCtl.roundEnd(event.winner === 'CT' ? 'CT' : 'T', String(event.reason || ''));
+      this.diagnostic('remote-bomb-round-end-applied', { winner: event.winner, reason: event.reason });
+      return true;
+    } catch (error) {
+      this.diagnostic('remote-bomb-round-end-error', String(error && error.stack || error));
+      return false;
+    } finally {
+      this.suppressNetwork = false;
+    }
+  }
+
   applyRemoteState(state, immediate = false) {
     const remote = state ? this.remotes.get(Number(state.slot)) : null;
     if (!remote || !state) {
@@ -668,7 +806,14 @@ export class VeraGameAdapter {
     remote.yaw = state.yaw; remote._lookPitch = state.pitch;
     remote.onGround = state.onGround;
     remote.walking = state.walking;
-    remote.crouchT = state.crouching ? 0.2 : 0;
+    // crouchT is an animation trigger, not a continuously-held network state.
+    // Re-arming it on every 45 ms packet makes the remote avatar repeatedly
+    // dip while the sender holds crouch. Trigger only when the state changes.
+    const networkCrouching = !!state.crouching;
+    if (networkCrouching !== !!remote.__veraNetworkCrouching) {
+      remote.crouchT = networkCrouching ? 0.2 : 0;
+      remote.__veraNetworkCrouching = networkCrouching;
+    }
     remote.weapon = state.weapon;
     remote.ammo = state.ammo;
     remote.__veraNetworkState = state;
