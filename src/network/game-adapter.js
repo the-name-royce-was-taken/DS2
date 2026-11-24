@@ -255,52 +255,97 @@ export class VeraGameAdapter {
       return null;
     }
     const normalizedSlot = Number(slot);
+    const localTeam = this.game && this.game.player && this.game.player.team;
+    const botTeam = remoteTeam === 'CT' || remoteTeam === 'T'
+      ? remoteTeam
+      : (this.remoteTeamOverride || (localTeam === 'CT' ? 'T' : 'CT'));
+
     if (this.remotes.has(normalizedSlot)) {
       const existing = this.remotes.get(normalizedSlot);
       // startGame()/botMgr.setup() can replace the bot array after the roster
       // has already been received. Never keep controlling an entity that is
       // no longer part of the active match.
       if (Array.isArray(manager.bots) && manager.bots.includes(existing)) {
-        if (remoteTeam === 'CT' || remoteTeam === 'T') {
-          existing.__veraTeam = remoteTeam;
-          existing.team = remoteTeam;
-          this.remoteTeam = remoteTeam;
+        if (existing.team !== botTeam) {
+          // The engine builds the character model when the bot is constructed.
+          // Updating only .team changes gameplay allegiance, not the already
+          // loaded CT/T character. Retire this entity and create a fresh bot
+          // with the authoritative roster team so its model matches as well.
+          this.remotes.delete(normalizedSlot);
+          this.remoteOriginals.delete(normalizedSlot);
+          if (this.remote === existing) {
+            this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
+          }
+          this.diagnostic('remote-team-model-rebuild', {
+            slot: normalizedSlot,
+            previousTeam: existing.team,
+            nextTeam: botTeam
+          });
+        } else {
+          existing.__veraTeam = botTeam;
+          existing.team = botTeam;
+          existing.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
+          this.remoteTeam = botTeam;
+          return existing;
         }
-        existing.name = this.remoteNames.get(normalizedSlot) || `Player ${normalizedSlot}`;
-        return existing;
+      } else {
+        this.remotes.delete(normalizedSlot);
+        this.remoteOriginals.delete(normalizedSlot);
+        if (this.remote === existing) {
+          this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
+        }
+        this.diagnostic('remote-slot-rebound', {
+          remoteSlot: normalizedSlot,
+          activeBotCount: Array.isArray(manager.bots) ? manager.bots.length : 0
+        });
       }
-      this.remotes.delete(normalizedSlot);
-      this.remoteOriginals.delete(normalizedSlot);
-      if (this.remote === existing) {
-        this.remote = this.remotes.get(1) || this.remotes.values().next().value || null;
-      }
-      this.diagnostic('remote-slot-rebound', {
-        remoteSlot: normalizedSlot,
-        activeBotCount: Array.isArray(manager.bots) ? manager.bots.length : 0
-      });
     }
+
     let candidate = manager.bots && manager.bots.find(bot => !bot.__veraRemote);
     let created = false;
-    if (!candidate) {
-      const template = manager.bots && manager.bots[0];
-      const Bot = this.botConstructor || (template && template.constructor);
+    const template = candidate || (manager.bots && manager.bots[0]);
+    const Bot = this.botConstructor || (template && template.constructor);
+    const difficulty = template ? template.difficulty : this.botDifficulty;
+
+    if (candidate && candidate.team !== botTeam) {
+      // A spare bot may have been constructed for the local player's side.
+      // Do not simply overwrite its team: that leaves the old faction model
+      // attached. Leave it unassigned for removeUnassignedBots() and replace it.
       if (typeof Bot !== 'function') {
         this.diagnostic('claim-no-bot-constructor', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length });
         return null;
       }
-      const localTeam = this.game && this.game.player && this.game.player.team;
-      const botTeam = remoteTeam === 'CT' || remoteTeam === 'T'
-        ? remoteTeam
-        : (this.remoteTeamOverride || (localTeam === 'CT' ? 'T' : 'CT'));
-      const difficulty = template ? template.difficulty : this.botDifficulty;
+      const previousTeam = candidate.team;
       candidate = new Bot(this.game, botTeam, `Player ${normalizedSlot}`, difficulty);
       manager.bots.push(candidate);
+      created = true;
+      this.diagnostic('remote-bot-recreated-for-team-model', {
+        remoteSlot: normalizedSlot,
+        previousTeam,
+        team: botTeam,
+        botCount: manager.bots.length
+      });
+    } else if (!candidate) {
+      if (typeof Bot !== 'function') {
+        this.diagnostic('claim-no-bot-constructor', { slot: normalizedSlot, botCount: manager.bots && manager.bots.length });
+        return null;
+      }
+      candidate = new Bot(this.game, botTeam, `Player ${normalizedSlot}`, difficulty);
+      manager.bots.push(candidate);
+      created = true;
       this.botConstructor = Bot;
       this.botDifficulty = finite(difficulty, this.botDifficulty);
-      created = true;
       this.diagnostic('remote-bot-created', { remoteSlot: normalizedSlot, team: botTeam, botCount: manager.bots.length });
     }
-    this.diagnostic('player-to-bot-mapped', { remoteSlot: normalizedSlot, botName: candidate.name, botAlive: candidate.alive, botCount: manager.bots && manager.bots.length, created });
+
+    this.diagnostic('player-to-bot-mapped', {
+      remoteSlot: normalizedSlot,
+      botName: candidate.name,
+      botAlive: candidate.alive,
+      botCount: manager.bots && manager.bots.length,
+      team: botTeam,
+      created
+    });
     const original = {
       update: candidate.update,
       spawn: candidate.spawn,
@@ -310,12 +355,10 @@ export class VeraGameAdapter {
     this.remoteOriginals.set(normalizedSlot, original);
     this.remotes.set(normalizedSlot, candidate);
     this.remote = this.remotes.get(1) || candidate;
-    this.remoteTeam = (remoteTeam === 'CT' || remoteTeam === 'T')
-      ? remoteTeam
-      : (this.remoteTeamOverride || (candidate.team === 'CT' ? 'CT' : 'T'));
+    this.remoteTeam = botTeam;
     candidate.__veraRemoteSlot = normalizedSlot;
-    candidate.__veraTeam = this.remoteTeam;
-    candidate.team = this.remoteTeam;
+    candidate.__veraTeam = botTeam;
+    candidate.team = botTeam;
     candidate.__veraRemote = true;
     // Keep the engine's bot/entity damage path for this slot. Marking it as
     // `isPlayer` would make the existing kill handler drop the local player's
