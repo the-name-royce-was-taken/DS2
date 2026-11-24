@@ -102,6 +102,45 @@ export class VeraGameAdapter {
     const game = this.game || window.game;
     if (!game) return false;
     this.game = game;
+    const modeCtl = game.modeCtl;
+    if (modeCtl && modeCtl !== this.modeController && !modeCtl.__veraNetworkHooks) {
+      this.modeController = modeCtl;
+      this.originalModePlant = modeCtl.plant;
+      this.originalModeRoundEnd = modeCtl.roundEnd;
+      const adapter = this;
+      if (typeof this.originalModePlant === 'function') {
+        modeCtl.plant = function veraNetworkPlant(actor, site) {
+          const result = adapter.originalModePlant.apply(this, arguments);
+          if (adapter.active && !adapter.suppressNetwork && this.planted) {
+            adapter.onLocalBomb({
+              type: 'bomb-planted',
+              eventId: `${adapter.slot}:bomb:${adapter.localSequence++}`,
+              x: finite(this.planted.x),
+              y: finite(this.planted.y),
+              z: finite(this.planted.z),
+              site: String(this.planted.site || (site && site.name) || '?'),
+              actorSlot: actor === adapter.game.player ? adapter.slot : finite(actor && actor.__veraRemoteSlot, adapter.slot)
+            });
+          }
+          return result;
+        };
+      }
+      if (typeof this.originalModeRoundEnd === 'function') {
+        modeCtl.roundEnd = function veraNetworkRoundEnd(winner, reason) {
+          const result = adapter.originalModeRoundEnd.apply(this, arguments);
+          if (adapter.active && !adapter.suppressNetwork) {
+            adapter.onLocalBomb({
+              type: 'bomb-round-end',
+              eventId: `${adapter.slot}:round:${adapter.localSequence++}`,
+              winner: winner === 'CT' ? 'CT' : 'T',
+              reason: String(reason || '')
+            });
+          }
+          return result;
+        };
+      }
+      modeCtl.__veraNetworkHooks = true;
+    }
     const manager = game.botMgr;
     if (manager && !manager.__veraNetworkSetup) {
       this.originalSetup = manager.setup;
@@ -634,6 +673,51 @@ export class VeraGameAdapter {
       vx: lerp(a.vx, b.vx), vy: lerp(a.vy, b.vy), vz: lerp(a.vz, b.vz),
       yaw: angleLerp(a.yaw, b.yaw, amount), pitch: lerp(a.pitch, b.pitch)
     };
+  }
+
+  applyRemoteBombPlanted(event) {
+    const game = this.game;
+    const modeCtl = game && game.modeCtl;
+    const slot = Number(event && event.slot);
+    const remote = this.remotes.get(slot);
+    if (!game || !modeCtl || typeof modeCtl.plant !== 'function' || !remote) return false;
+    const x = finite(event.x, NaN), y = finite(event.y, NaN), z = finite(event.z, NaN);
+    if (![x, y, z].every(Number.isFinite)) return false;
+    if (modeCtl.planted &&
+        Math.hypot(modeCtl.planted.x - x, modeCtl.planted.z - z) < 0.5) return true;
+    const siteName = String(event.site || '');
+    const site = game.map && Array.isArray(game.map.bombsites)
+      ? game.map.bombsites.find(item => item && item.name === siteName) || null
+      : null;
+    remote.x = x; remote.y = y; remote.z = z; remote._visY = y;
+    this.suppressNetwork = true;
+    try {
+      modeCtl.plant(remote, site);
+      this.diagnostic('remote-bomb-planted-applied', { slot, position: [x, y, z], site: siteName, planted: !!modeCtl.planted });
+      return !!modeCtl.planted;
+    } catch (error) {
+      this.diagnostic('remote-bomb-plant-error', { slot, error: String(error && error.stack || error) });
+      return false;
+    } finally {
+      this.suppressNetwork = false;
+    }
+  }
+
+  applyRemoteBombRoundEnd(event) {
+    const modeCtl = this.game && this.game.modeCtl;
+    if (!modeCtl || typeof modeCtl.roundEnd !== 'function') return false;
+    if (modeCtl.state === 'end' || modeCtl.state === 'match_end') return true;
+    this.suppressNetwork = true;
+    try {
+      modeCtl.roundEnd(event.winner === 'CT' ? 'CT' : 'T', String(event.reason || ''));
+      this.diagnostic('remote-bomb-round-end-applied', { winner: event.winner, reason: event.reason });
+      return true;
+    } catch (error) {
+      this.diagnostic('remote-bomb-round-end-error', String(error && error.stack || error));
+      return false;
+    } finally {
+      this.suppressNetwork = false;
+    }
   }
 
   applyRemoteState(state, immediate = false) {
