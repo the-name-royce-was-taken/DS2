@@ -213,7 +213,37 @@ export class VeraGameAdapter {
 
   claimRemoteSlots() {
     for (const [slot, remoteTeam] of this.remotePlayers) this.claimRemoteSlot(slot, remoteTeam);
+    this.removeUnassignedBots();
     return this.remote || null;
+  }
+
+  removeUnassignedBots() {
+    const manager = this.game && this.game.botMgr;
+    if (!manager || !Array.isArray(manager.bots)) return;
+    const assigned = new Set(this.remotes.values());
+    const kept = [];
+    for (const bot of manager.bots) {
+      if (assigned.has(bot)) {
+        kept.push(bot);
+        continue;
+      }
+      // In a network match every AI bot slot must belong to a connected
+      // player. Leaving spare bots in the manager makes them continue to
+      // think, shoot and spawn as AI alongside the real remote players.
+      try {
+        if (bot.cs2Agent && bot.cs2Agent.root && this.game.scene) {
+          this.game.scene.remove(bot.cs2Agent.root);
+        }
+      } catch (error) {}
+      try {
+        if (bot.shadow && this.game.scene) this.game.scene.remove(bot.shadow);
+      } catch (error) {}
+      this.diagnostic('unassigned-ai-bot-removed', {
+        name: bot.name,
+        team: bot.team
+      });
+    }
+    manager.bots.splice(0, manager.bots.length, ...kept);
   }
 
   claimRemoteSlot(slot = 1, remoteTeam = '') {
