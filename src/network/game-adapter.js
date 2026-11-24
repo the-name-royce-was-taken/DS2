@@ -668,7 +668,14 @@ export class VeraGameAdapter {
     remote.yaw = state.yaw; remote._lookPitch = state.pitch;
     remote.onGround = state.onGround;
     remote.walking = state.walking;
-    remote.crouchT = state.crouching ? 0.2 : 0;
+    // crouchT is an animation trigger, not a continuously-held network state.
+    // Re-arming it on every 45 ms packet makes the remote avatar repeatedly
+    // dip while the sender holds crouch. Trigger only when the state changes.
+    const networkCrouching = !!state.crouching;
+    if (networkCrouching !== !!remote.__veraNetworkCrouching) {
+      remote.crouchT = networkCrouching ? 0.2 : 0;
+      remote.__veraNetworkCrouching = networkCrouching;
+    }
     remote.weapon = state.weapon;
     remote.ammo = state.ammo;
     remote.__veraNetworkState = state;
