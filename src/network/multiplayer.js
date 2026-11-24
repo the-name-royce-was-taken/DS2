@@ -1,5 +1,5 @@
 import { VeraPeerTransport } from './webrtc.js?v=vera34';
-import { VeraGameAdapter } from './game-adapter.js?v=vera40';
+import { VeraGameAdapter } from './game-adapter.js?v=vera41';
 import { VeraRoomTransport } from './signaling.js?v=vera34';
 
 const STATUS_TEXT = Object.freeze({
@@ -440,6 +440,14 @@ class VeraMultiplayerSession {
       const sent = this.transport.sendControl({ ...event, from: this.role, slot: this.slot });
       this.diagnostic(event.type === 'melee' ? (sent ? 'melee-control-sent' : 'melee-control-send-failed') : (sent ? 'fire-control-sent' : 'fire-control-send-failed'), { role: this.role, slot: this.slot, eventId: event.eventId, weapon: event.weapon });
     };
+    this.adapter.onLocalBomb = event => {
+      if (!this.transport || !this.markEvent(event.eventId)) return;
+      const sent = this.transport.sendControl({ ...event, from: this.role, slot: this.slot });
+      this.diagnostic(sent ? 'bomb-event-sent' : 'bomb-event-send-failed', {
+        role: this.role, slot: this.slot, type: event.type, eventId: event.eventId,
+        position: [event.x, event.y, event.z], site: event.site, winner: event.winner
+      });
+    };
   }
 
   handleRoomAssigned(message) {
@@ -686,6 +694,17 @@ class VeraMultiplayerSession {
         if (Number.isFinite(message.roundTimeLeft)) game.roundTimeLeft = Math.max(0, message.roundTimeLeft);
         if (typeof message.roundActive === 'boolean') game.roundActive = message.roundActive;
         if (game.hud && game.hud.update) { try { game.hud.update(0); } catch (error) {} }
+      }
+      return;
+    }
+    if (message.type === 'bomb-planted' || message.type === 'bomb-round-end') {
+      const senderSlot = Number(fromSlot);
+      if (!Number.isInteger(senderSlot) || senderSlot < 0 || senderSlot > 31 || senderSlot === this.slot) return;
+      if (!this.markEvent(message.eventId)) return;
+      if (message.type === 'bomb-planted') {
+        this.adapter.applyRemoteBombPlanted({ ...message, slot: senderSlot });
+      } else {
+        this.adapter.applyRemoteBombRoundEnd(message);
       }
       return;
     }
