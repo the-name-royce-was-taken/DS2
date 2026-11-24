@@ -1,5 +1,5 @@
 import { VeraPeerTransport } from './webrtc.js?v=vera34';
-import { VeraGameAdapter } from './game-adapter.js?v=vera38';
+import { VeraGameAdapter } from './game-adapter.js?v=vera39';
 import { VeraRoomTransport } from './signaling.js?v=vera34';
 
 const STATUS_TEXT = Object.freeze({
@@ -589,7 +589,7 @@ class VeraMultiplayerSession {
     // everyone else with a guessed/default team.
     if (!hasGuest || roster.some(player => !this.playerTeams.has(player.slot))) return;
     const selected = this.adapter.selectedMatch();
-    this.matchConfig = { map: selected.map, mode: 'dm' };
+    this.matchConfig = { map: selected.map, mode: selected.mode || 'defusal' };
     const players = roster
       .map(player => ({
         slot: player.slot,
@@ -617,7 +617,7 @@ class VeraMultiplayerSession {
     if (players.length) this.setPlayerRoster(players);
     this.setStatus('connecting');
     try {
-      await this.adapter.startMatch({ map: config.map, mode: 'dm', team });
+      await this.adapter.startMatch({ map: config.map, mode: config.mode || 'defusal', team });
       if (!this.adapter.active || this.role !== startingRole) return;
       this.matchStarted = true;
       this.setDiagnosticsEnabled(true);
@@ -672,7 +672,7 @@ class VeraMultiplayerSession {
       const localEntry = players.find(player => Number(player && player.slot) === this.slot);
       this.localTeam = team(localEntry && localEntry.team) || team(message.guestTeam) || this.localTeam || 'T';
       this.remoteTeam = team(message.hostTeam) || '';
-      this.matchConfig = { map: text(message.map) || 'oasis', mode: 'dm' };
+      this.matchConfig = { map: text(message.map) || 'oasis', mode: text(message.mode) || 'defusal' };
       this.beginMatch(this.matchConfig, this.localTeam, players);
       return;
     }
