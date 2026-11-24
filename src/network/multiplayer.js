@@ -1,5 +1,5 @@
 import { VeraPeerTransport } from './webrtc.js?v=vera34';
-import { VeraGameAdapter } from './game-adapter.js?v=vera38';
+import { VeraGameAdapter } from './game-adapter.js?v=vera39';
 import { VeraRoomTransport } from './signaling.js?v=vera34';
 
 const STATUS_TEXT = Object.freeze({
